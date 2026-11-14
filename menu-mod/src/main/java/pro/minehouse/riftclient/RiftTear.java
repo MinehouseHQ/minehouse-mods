@@ -102,7 +102,6 @@ public final class RiftTear {
 			}
 			float[] ends = new float[4];
 			boolean seen = true;
-			float depth = 0;
 			for (int i = 0; i < 2; i++) {
 				Vec3 p = (i == 0 ? t.bottom() : t.top()).subtract(camera);
 				v.set((float) p.x, (float) p.y, (float) p.z, 1).mul(viewProjection);
@@ -112,7 +111,6 @@ public final class RiftTear {
 				}
 				ends[i * 2] = v.x / v.w * 0.5f + 0.5f;
 				ends[i * 2 + 1] = v.y / v.w * 0.5f + 0.5f;
-				depth += v.w / 2;
 			}
 			if (!seen) {
 				continue;
@@ -122,7 +120,6 @@ public final class RiftTear {
 			System.arraycopy(ends, 0, out, n * 8, 4);
 			out[n * 8 + 4] = open;
 			out[n * 8 + 5] = t.seed();
-			out[n * 8 + 6] = depth;
 			n++;
 		}
 		return out;

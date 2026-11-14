@@ -80,6 +80,9 @@ public final class RiftRestart {
 		return hours * 3600 + Integer.parseInt(m.group(2)) * 60 + Integer.parseInt(m.group(3));
 	}
 
+	/** The tears of the countdown are off until they are redone: they did not look good. The plate and the limbo stay. */
+	static final boolean COUNTDOWN = false;
+
 	static void tick(Minecraft mc) {
 		if (mc.level != null && mc.player != null && !limbo) {
 			net.minecraft.network.chat.Component bar = ((pro.minehouse.riftclient.mixin.HudAccess) mc.gui.hud).minehouse$actionBar();
@@ -93,7 +96,7 @@ public final class RiftRestart {
 			limbo = false;
 		}
 		int now = -1;
-		if (mc.level != null) {
+		if (COUNTDOWN && mc.level != null) {
 			for (LerpingBossEvent e : ((BossBarsAccess) mc.gui.hud.getBossOverlay()).minehouse$events().values()) {
 				now = Math.max(now, seconds(e.getName().getString()));
 			}
