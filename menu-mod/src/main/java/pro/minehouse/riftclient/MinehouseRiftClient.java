@@ -10,7 +10,10 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
+import com.mojang.blaze3d.platform.InputConstants;
+import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.minecraft.client.DeltaTracker;
+import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.resources.Identifier;
@@ -19,8 +22,18 @@ import net.minecraft.resources.Identifier;
 public final class MinehouseRiftClient implements ClientModInitializer {
 	public static final Logger LOG = LoggerFactory.getLogger("minehouse-rift-client");
 
+	private static KeyMapping bagKey;
+
+	/** The key of the bag in a run (E is an ability there). */
+	static KeyMapping bagKey() {
+		return bagKey;
+	}
+
 	@Override
 	public void onInitializeClient() {
+		bagKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.minehouse-rift.bag", InputConstants.KEY_I,
+				KeyMapping.Category.register(Identifier.fromNamespaceAndPath("minehouse-rift", "keys"))));
+		PayloadTypeRegistry.serverboundPlay().register(RiftUiPayloads.Equip.TYPE, RiftUiPayloads.Equip.CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(RiftViewPayload.TYPE, RiftViewPayload.CODEC);
 		ClientPlayNetworking.registerGlobalReceiver(RiftViewPayload.TYPE, (payload, context) -> TopDown.apply(payload));
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> TopDown.stop());

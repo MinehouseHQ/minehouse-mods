@@ -248,6 +248,20 @@ public final class RiftUiPayloads {
 		}
 	}
 
+	/**
+	 * Armour on and off from the Rift's windows: a slot of the open window to put on, or
+	 * {@code -1 - n} to take piece n (head, chest, legs, feet) off into the bag.
+	 */
+	public record Equip(int slot) implements CustomPacketPayload {
+		public static final Type<Equip> TYPE = new Type<>(Identifier.fromNamespaceAndPath("minehouse-rift", "equip"));
+		public static final StreamCodec<FriendlyByteBuf, Equip> CODEC = StreamCodec.of((buf, e) -> buf.writeVarInt(e.slot() + 8), buf -> new Equip(buf.readVarInt() - 8));
+
+		@Override
+		public Type<Equip> type() {
+			return TYPE;
+		}
+	}
+
 	/** A skill was used and is ready again in {@code ticks}; skill -1: all of them are ready (a new run). */
 	public record Cooldown(byte skill, int ticks) implements CustomPacketPayload {
 		public static final Type<Cooldown> TYPE = new Type<>(Identifier.fromNamespaceAndPath("minehouse-rift", "cooldown"));

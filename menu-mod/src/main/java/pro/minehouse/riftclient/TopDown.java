@@ -36,6 +36,8 @@ public final class TopDown {
 	/** How far (in screen heights) the cursor may be from the middle. */
 	private static final double EDGE = 0.96;
 	/** A strike reaches mobs this many degrees to either side of where the character looks. */
+	/** Everything this near the camera is drawn, however small. */
+	public static final double SEEN = 64;
 	static final float STRIKE_ARC = 60f;
 
 	private static boolean active;

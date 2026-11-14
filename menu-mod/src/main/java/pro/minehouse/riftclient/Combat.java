@@ -123,7 +123,15 @@ public final class Combat {
 		while (mc.options.keyInventory.consumeClick()) {
 			shard = true;
 		}
+		boolean bag = false;
+		while (MinehouseRiftClient.bagKey() != null && MinehouseRiftClient.bagKey().consumeClick()) {
+			bag = true;
+		}
 		if (!usable(mc)) {
+			return;
+		}
+		if (bag) {
+			mc.gui.setScreen(RiftBagScreen.bag(mc.player.getInventory()));
 			return;
 		}
 		if (wave) {
