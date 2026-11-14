@@ -250,6 +250,18 @@ public final class RiftHud {
 
 	// --- The run -----------------------------------------------------------------------------
 
+	/** The width of our own health bar: 100, or more when the name and the numbers need it. */
+	static int ownBarWidth(int nameWidth, int numbersWidth) {
+		return Math.max(100, nameWidth + 8 + numbersWidth);
+	}
+
+	/** How wide a name may be in a row of {@code width} that ends with a note. */
+	static int nameRoom(int width, int nameAt, int noteWidth) {
+		return Math.max(20, width - nameAt - 4 - noteWidth - 5);
+	}
+
+	static final int MATE_W = 124;
+
 	private static void runHud(GuiGraphicsExtractor g, Font font, Minecraft mc, int w, int h) {
 		int cx = w / 2;
 		// Top: where we are, and the boss.
@@ -265,18 +277,20 @@ public final class RiftHud {
 		for (RiftUiPayloads.Mate m : run.mates()) {
 			float share = m.max() <= 0 ? 0 : m.health() / (float) m.max();
 			int rgb = m.state() == 1 ? Ui.RED : m.state() == 2 ? 0x6B5A8F : Ui.healthColor(share);
-			Ui.panel(g, 6, y, 96, 20, m.state() == 1 ? 0x3B0D1A : 0x120A1C, 0.88f);
+			Ui.panel(g, 6, y, MATE_W, 20, m.state() == 1 ? 0x3B0D1A : 0x120A1C, 0.88f);
 			g.fill(6, y, 8, y + 20, Ui.a(rgb, 1));
-			g.text(font, font.plainSubstrByWidth(m.name(), 54), 11, y + 3, Ui.a(m.state() == 2 ? Ui.MUTED : Ui.WHITE, 1), false);
 			String note = mateNote(m);
+			int noteWidth = m.state() == 0 ? font.width(note) : Math.round(font.width(note) * 0.75f);
+			g.text(font, font.plainSubstrByWidth(m.name(), nameRoom(MATE_W, 5, noteWidth)), 11, y + 3, Ui.a(m.state() == 2 ? Ui.MUTED : Ui.WHITE, 1), false);
+			int right = 6 + MATE_W - 3;
 			if (m.state() == 0) {
-				g.text(font, note, 99 - font.width(note), y + 3, 0xFFFFFFFF, false);
+				g.text(font, note, right - font.width(note), y + 3, 0xFFFFFFFF, false);
 			} else {
-				Ui.big(g, font, note, 99, y + 4, 0.75f, Ui.a(m.state() == 1 ? 0xFECDD3 : Ui.MUTED, 1), 2);
+				Ui.big(g, font, note, right, y + 4, 0.75f, Ui.a(m.state() == 1 ? 0xFECDD3 : Ui.MUTED, 1), 2);
 			}
 			float bar = m.state() == 1 ? m.downLeft() / (float) Math.max(1, run.downTotal()) : m.state() == 2 ? 0 : share;
-			g.fill(11, y + 14, 99, y + 17, Ui.a(Ui.INK, 1));
-			g.fill(11, y + 14, 11 + Math.round(88 * Math.max(0, Math.min(1, bar))), y + 17, Ui.a(rgb, 1));
+			g.fill(11, y + 14, 3 + MATE_W, y + 17, Ui.a(Ui.INK, 1));
+			g.fill(11, y + 14, 11 + Math.round((MATE_W - 8) * Math.max(0, Math.min(1, bar))), y + 17, Ui.a(rgb, 1));
 			y += 23;
 		}
 
@@ -288,10 +302,13 @@ public final class RiftHud {
 			int by = h - 30;
 			g.fill(7, by - 1, 29, by + 21, 0xFFFFFFFF);
 			Ui.face(g, mc.player.getGameProfile().name(), 8, by, 20);
-			g.text(font, mc.player.getGameProfile().name(), 34, by + 1, 0xFFFFFFFF, true);
+			String name = mc.player.getGameProfile().name();
 			String hp = down ? "0 / " + Math.round(max) : (int) Math.ceil(health) + " / " + Math.round(max);
-			g.text(font, hp, 134 - font.width(hp), by + 1, 0xFFFFFFFF, true);
-			Ui.bar(g, 34, by + 13, 100, 6, down ? 0 : health / max, Ui.healthColor(health / max), 0x14532D, 1);
+			// A long name pushes the numbers and the bar out, it never runs under them.
+			int bar = ownBarWidth(font.width(name), font.width(hp));
+			g.text(font, name, 34, by + 1, 0xFFFFFFFF, true);
+			g.text(font, hp, 34 + bar - font.width(hp), by + 1, 0xFFFFFFFF, true);
+			Ui.bar(g, 34, by + 13, bar, 6, down ? 0 : health / max, Ui.healthColor(health / max), 0x14532D, 1);
 		}
 
 		if (run.downLeft() < 0 && mc.player != null && !mc.player.isSpectator()) {

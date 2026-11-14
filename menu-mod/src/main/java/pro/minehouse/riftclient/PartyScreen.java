@@ -23,7 +23,7 @@ import net.minecraft.network.chat.Component;
 public final class PartyScreen extends Screen {
 	private static final int BAR = 22;
 	private static final int LEFT_W = 124;
-	private static final int RIGHT_W = 128;
+	private static final int RIGHT_W = 168;
 	private static final int ROW = 16;
 
 	private RiftUiPayloads.Lobby shown;
@@ -200,8 +200,11 @@ public final class PartyScreen extends Screen {
 			Ui.panel(g, x, y, LEFT_W, ROW, p.state() == 2 ? Ui.PANEL_DIM : Ui.PANEL, 0.9f);
 			g.fill(x, y, x + 2, y + ROW, Ui.a(p.state() == 2 ? 0x6B5A8F : Ui.GREEN, 1));
 			Ui.face(g, p.name(), x + 5, y + 3, 10);
-			g.text(this.font, this.font.plainSubstrByWidth(p.name(), LEFT_W - 66), x + 18, y + 4, Ui.a(p.state() == 2 ? Ui.MUTED : Ui.WHITE, 1), false);
-			if (!free || !l.canInvite()) {
+			boolean noted = !free || !l.canInvite();
+			int taken = noted ? Math.round(this.font.width(personNote(p)) * 0.75f) : 44;
+			g.text(this.font, this.font.plainSubstrByWidth(p.name(), RiftHud.nameRoom(LEFT_W, 18, taken)), x + 18, y + 4,
+					Ui.a(p.state() == 2 ? Ui.MUTED : Ui.WHITE, 1), false);
+			if (noted) {
 				String note = personNote(p);
 				Ui.big(g, this.font, note, x + LEFT_W - 4, y + 5, 0.75f, Ui.a(Ui.MUTED, 1), 2);
 			}
@@ -223,13 +226,16 @@ public final class PartyScreen extends Screen {
 				: l.note().isEmpty() ? "&7Заходим, когда готовы все." : l.note();
 		g.textWithWordWrap(this.font, RiftText.component(note), rx, this.height - 6 - 27, RIGHT_W, 0xFFFFFFFF);
 		int ry = this.rightTop - 4;
-		ry -= 44;
-		Ui.panel(g, rx, ry, RIGHT_W, 44, Ui.PANEL, 0.9f);
+		// The description in letters of the usual size: shrunk ones come out uneven on most screens.
+		Component about = Component.literal("Залы с волнами и Страж. До " + Math.max(1, l.slots().size()) + " игроков, вещи выдаются на входе.");
+		int aboutH = this.font.wordWrapHeight(about, RIGHT_W - 12);
+		int card = 28 + aboutH + 4;
+		ry -= card;
+		Ui.panel(g, rx, ry, RIGHT_W, card, Ui.PANEL, 0.9f);
 		g.fill(rx, ry, rx + RIGHT_W, ry + 2, Ui.a(Ui.ACCENT, 1));
 		Ui.label(g, this.font, "РЕЖИМ", rx + 6, ry + 6, 0xB9A9D6);
 		g.text(this.font, "Данж на отряд", rx + 6, ry + 14, 0xFFFFFFFF, false);
-		Ui.big(g, this.font, "Залы с волнами и Страж.", rx + 6, ry + 26, 0.75f, Ui.a(Ui.MUTED, 1), 0);
-		Ui.big(g, this.font, "До " + Math.max(1, l.slots().size()) + " игроков, вещи на входе.", rx + 6, ry + 34, 0.75f, Ui.a(Ui.MUTED, 1), 0);
+		g.textWithWordWrap(this.font, about, rx + 6, ry + 27, RIGHT_W - 12, Ui.a(Ui.MUTED, 1));
 		ry -= 4;
 		for (int i = l.slots().size() - 1; i >= 0; i--) {
 			RiftUiPayloads.Slot s = l.slots().get(i);
@@ -240,11 +246,17 @@ public final class PartyScreen extends Screen {
 			if (empty) {
 				g.text(this.font, l.searching() ? "Ищем игрока" : "Свободно", rx + 6, ry + 4, Ui.a(l.searching() ? Ui.ACCENT : 0x8A7BA8, 1), false);
 			} else {
+				if (s.leader()) {
+					g.fill(rx + 3, ry + 2, rx + 15, ry + 14, Ui.a(Ui.YELLOW, 1));
+				}
 				Ui.face(g, s.name(), rx + 4, ry + 3, 10);
-				g.text(this.font, this.font.plainSubstrByWidth(s.name(), RIGHT_W - 70), rx + 18, ry + 4, 0xFFFFFFFF, false);
-			}
-			if (!empty) {
-				Ui.big(g, this.font, slotNote(s, l.searching()), rx + RIGHT_W - 4, ry + 5, 0.75f, Ui.a(s.ready() ? 0xBBF7D0 : Ui.MUTED, 1), 2);
+				// The whole name comes first: "leader" stays in the note only while there is room.
+				String state = slotNote(s, l.searching());
+				if (this.font.width(s.name()) > RiftHud.nameRoom(RIGHT_W, 18, this.font.width(state))) {
+					state = s.ready() ? "ГОТОВ" : "НЕ ГОТОВ";
+				}
+				g.text(this.font, this.font.plainSubstrByWidth(s.name(), RiftHud.nameRoom(RIGHT_W, 18, this.font.width(state))), rx + 18, ry + 4, 0xFFFFFFFF, false);
+				g.text(this.font, state, rx + RIGHT_W - 4 - this.font.width(state), ry + 4, Ui.a(s.ready() ? 0xBBF7D0 : Ui.MUTED, 1), false);
 			}
 		}
 		Ui.label(g, this.font, "ОТРЯД", rx, ry - 9, 0xB9A9D6);

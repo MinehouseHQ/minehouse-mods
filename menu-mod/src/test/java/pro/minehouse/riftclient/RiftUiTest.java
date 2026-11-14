@@ -183,4 +183,13 @@ class RiftUiTest {
 		assertEquals(0f, Combat.strikeCovered(0.99f));
 		assertEquals(1f, Combat.strikeCovered(-3f));
 	}
+
+	@Test
+	void aLongNameNeverRunsUnderTheNumbers() {
+		assertEquals(100, RiftHud.ownBarWidth(30, 40));
+		assertEquals(72 + 8 + 42, RiftHud.ownBarWidth(72, 42));
+		// A row of 168 with the name from 18 and a note of 48: the name gets what is left.
+		assertEquals(168 - 18 - 4 - 48 - 5, RiftHud.nameRoom(168, 18, 48));
+		assertEquals(20, RiftHud.nameRoom(60, 18, 80));
+	}
 }
