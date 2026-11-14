@@ -10,6 +10,11 @@
         {
           "sampler_name": "In",
           "target": "minecraft:main"
+        },
+        {
+          "sampler_name": "Depth",
+          "target": "minecraft:main",
+          "use_depth_buffer": true
         }
       ],
       "output": "swap",
@@ -119,6 +124,16 @@
           },
           {
             "name": "Tear3B",
+            "type": "vec4",
+            "value": [
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          {
+            "name": "Screen",
             "type": "vec4",
             "value": [
               0.0,

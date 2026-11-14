@@ -36,7 +36,7 @@ public final class RiftTear {
 	/** The uniform block of the shader: for each tear two vec4. */
 	static final String BLOCK = "RiftTears";
 	static final int MAX = 4;
-	static final int BYTES = MAX * 2 * 16;
+	static final int BYTES = MAX * 2 * 16 + 16;
 	/** How far a tear is drawn from, in blocks. */
 	static final double RANGE = 96;
 	/** Part of the picture's side that the tear in it takes. */
@@ -101,6 +101,7 @@ public final class RiftTear {
 				break;
 			}
 			float[] ends = new float[4];
+			float[] depths = new float[2];
 			boolean seen = true;
 			for (int i = 0; i < 2; i++) {
 				Vec3 p = (i == 0 ? t.bottom() : t.top()).subtract(camera);
@@ -111,6 +112,7 @@ public final class RiftTear {
 				}
 				ends[i * 2] = v.x / v.w * 0.5f + 0.5f;
 				ends[i * 2 + 1] = v.y / v.w * 0.5f + 0.5f;
+				depths[i] = RenderSystem.getDevice().getDeviceInfo().isZZeroToOne() ? v.z / v.w : v.z / v.w * 0.5f + 0.5f;
 			}
 			if (!seen) {
 				continue;
@@ -120,6 +122,8 @@ public final class RiftTear {
 			System.arraycopy(ends, 0, out, n * 8, 4);
 			out[n * 8 + 4] = open;
 			out[n * 8 + 5] = t.seed();
+			out[n * 8 + 6] = depths[0];
+			out[n * 8 + 7] = depths[1];
 			n++;
 		}
 		return out;
@@ -135,23 +139,6 @@ public final class RiftTear {
 			return;
 		}
 		float[] data = project(tears, camera.getViewRotationProjectionMatrix(new Matrix4f()), camera.position());
-		// The tears of a coming restart lie on the screen itself and go first.
-		List<float[]> screen = RiftRestart.tears(RiftRestart.left());
-		if (!screen.isEmpty()) {
-			float[] all = new float[MAX * 8];
-			int n = 0;
-			for (float[] t : screen) {
-				if (n < MAX) {
-					System.arraycopy(t, 0, all, n++ * 8, 8);
-				}
-			}
-			for (int i = 0; i < MAX && n < MAX; i++) {
-				if (data[i * 8 + 4] > 0 && !RiftRestart.inLimbo()) {
-					System.arraycopy(data, i * 8, all, n++ * 8, 8);
-				}
-			}
-			data = all;
-		}
 		if (buffer == null || buffer.isClosed()) {
 			buffer = RenderSystem.getDevice().createBuffer(() -> "MineHouse rift tears", GpuBuffer.USAGE_UNIFORM | GpuBuffer.USAGE_COPY_DST, BYTES);
 		}
@@ -160,6 +147,8 @@ public final class RiftTear {
 			for (float f : data) {
 				bytes.putFloat(f);
 			}
+			// After the tears, the numbers of the whole screen: how much of it a restart has taken.
+			bytes.putFloat(RiftRestart.field()).putFloat(0).putFloat(0).putFloat(0);
 			bytes.flip();
 			RenderSystem.getDevice().createCommandEncoder().writeToBuffer(buffer.slice(), bytes);
 		}

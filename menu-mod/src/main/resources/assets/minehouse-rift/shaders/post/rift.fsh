@@ -8,6 +8,7 @@
 // loses colour and the edge beats.
 
 uniform sampler2D InSampler;
+uniform sampler2D DepthSampler;
 
 layout(location = 0) in vec2 texCoord;
 
@@ -25,8 +26,8 @@ layout(std140) uniform RiftConfig {
 };
 
 // The rifts in sight, four at most. A: both ends of the tear on the screen (0..1), bottom then
-// top. B: x how open it is (0: none), y its seed. The first B also carries, for the whole screen,
-// z: how far inside the rift the viewer is (0..1) and w: a white flash (0..1).
+// top. B: x how open it is (0: none), y its seed, z and w the depth of its bottom and its top as
+// the depth buffer holds it: what stands nearer hides the tear.
 layout(std140) uniform RiftTears {
     vec4 Tear0A;
     vec4 Tear0B;
@@ -36,6 +37,8 @@ layout(std140) uniform RiftTears {
     vec4 Tear2B;
     vec4 Tear3A;
     vec4 Tear3B;
+    // x: how much of the screen the field of a restart has taken (0..1)
+    vec4 Screen;
 };
 
 layout(location = 0) out vec4 fragColor;
@@ -106,6 +109,14 @@ vec4 tearAt(vec4 a, vec4 b, vec2 uv, float aspect, float seconds, out vec2 acros
     return vec4(d, t, s - line, len);
 }
 
+// 1 where nothing of the world stands before the tear at this point of the screen, 0 where it is hidden.
+float shown(vec4 b, float along, vec2 uv) {
+    float tear = mix(b.z, b.w, clamp(along, 0.0, 1.0));
+    float world = texture(DepthSampler, uv).r;
+    // The game keeps depth turned over: nearer is greater, about (near plane / distance).
+    return tear >= world * 0.97 ? 1.0 : 0.0;
+}
+
 // What is seen through a tear: a bright sky of the other side behind slow clouds of the rift.
 vec3 through(vec2 q, float seconds, float seed) {
     vec2 flow = q * 3.0 + vec2(seed, seconds * 0.25);
@@ -169,7 +180,7 @@ void main() {
         float wave = sin(k.y * 28.0 - seconds * 5.0 + tearB[i].y) * 0.35 + 1.0;
         // Only beside the tear, not on the line it would run on past its ends.
         float beside = smoothstep(-0.12, 0.04, k.y) * (1.0 - smoothstep(0.96, 1.12, k.y));
-        bend -= across * sign(k.z) * near * wave * k.w * 0.085 * beside * min(tearB[i].x, 1.0);
+        bend -= across * sign(k.z) * near * wave * k.w * 0.085 * beside * min(tearB[i].x, 1.0) * shown(tearB[i], k.y, texCoord);
     }
     vec2 at = texCoord + bend;
 
@@ -191,7 +202,7 @@ void main() {
 
     // A restart (its last seconds, and the wait for the server to come back): the picture gives
     // way to the field of the MineHouse site.
-    float gone = clamp(Tear0B.z, 0.0, 1.0);
+    float gone = clamp(Screen.x, 0.0, 1.0);
     if (gone > 0.0) {
         color = mix(color, field(texCoord, aspect, seconds), gone);
     }
@@ -205,7 +216,7 @@ void main() {
         vec4 k = tearAt(tearA[i], tearB[i], texCoord, aspect, seconds, across);
         // Above one a tear is bursting: it is wider than it is long and goes white.
         float burst = clamp((tearB[i].x - 1.3) / 6.0, 0.0, 1.0);
-        float open = min(tearB[i].x, 1.0) * (1.0 - gone);
+        float open = min(tearB[i].x, 1.0) * (1.0 - gone) * shown(tearB[i], k.y, texCoord);
         float out_ = max(k.x, 0.0);
         float halo = 0.012 / (out_ + 0.012);
         float flicker = 0.85 + 0.15 * sin(seconds * 17.0 + tearB[i].y * 3.0) * sin(seconds * 5.3);
@@ -223,7 +234,5 @@ void main() {
         }
     }
 
-    color = mix(color, vec3(1.0), Tear0B.w);
-
-    fragColor = vec4(color, 1.0);
+        fragColor = vec4(color, 1.0);
 }

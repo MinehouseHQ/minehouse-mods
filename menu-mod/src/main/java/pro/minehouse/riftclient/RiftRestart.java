@@ -1,7 +1,5 @@
 package pro.minehouse.riftclient;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -22,7 +20,7 @@ import pro.minehouse.riftclient.mixin.HudAccess;
  * ("Перезапуск через 3:45"), so it works on every MineHouse server without anything new from it.
  */
 public final class RiftRestart {
-	static final Pattern CLOCK = Pattern.compile("Перезапуск через (?:(\\d+):)?(\\d+):(\\d\\d)");
+	static final Pattern CLOCK = Pattern.compile("Перезапуск(?: сервера)? через (?:(\\d+):)?(\\d+):(\\d\\d)");
 	/** The world fades out over this many last seconds. */
 	static final float FADE = 3;
 	static final String LIMBO_LINE = "Вернём тебя на сервер";
@@ -120,18 +118,6 @@ public final class RiftRestart {
 
 	static boolean any() {
 		return field() > 0;
-	}
-
-	/** What the shader takes of it: no tear, only the first slot's number for the whole screen (see {@link RiftTear#upload}). */
-	static List<float[]> tears(float left) {
-		List<float[]> out = new ArrayList<>();
-		float field = field();
-		if (field > 0) {
-			float[] first = new float[8];
-			first[6] = field;
-			out.add(first);
-		}
-		return out;
 	}
 
 	/** The words of the limbo, laid out as on the site: a small plate, the name, one line. */
