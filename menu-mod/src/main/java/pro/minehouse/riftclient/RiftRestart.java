@@ -6,68 +6,58 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.LerpingBossEvent;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.Style;
 import pro.minehouse.riftclient.mixin.BossBarsAccess;
+import pro.minehouse.riftclient.mixin.HudAccess;
 
 /**
- * A restart of the server seen as the rift taking the world: in the last minute of the countdown
- * tears creep in from the corners of the screen, in the last seconds one opens across the middle
- * and swallows the picture. The countdown is read from the server's boss bar ("Перезапуск через
- * 3:45"), so it works on every MineHouse server without anything new from it.
+ * A restart of the server looks like the first screen of the MineHouse site: in the last seconds
+ * of the countdown the world fades into a near-black field with waves of dots along the bottom,
+ * and in the limbo (where Gate keeps players while their server restarts) that field carries the
+ * name, one line and a small status plate. The countdown is read from the server's boss bar
+ * ("Перезапуск через 3:45"), so it works on every MineHouse server without anything new from it.
  */
 public final class RiftRestart {
 	static final Pattern CLOCK = Pattern.compile("Перезапуск через (?:(\\d+):)?(\\d+):(\\d\\d)");
-	/** The tears start this many seconds before the restart, the middle one this many. */
-	static final float CREEP = 5;
-	static final float OPEN = 5;
+	/** The world fades out over this many last seconds. */
+	static final float FADE = 3;
+	static final String LIMBO_LINE = "Вернём тебя на сервер";
+	/** Back on a server the field fades away over this long. */
+	static final float BACK_MS = 900;
 
 	/** Seconds left as last told, and when that was; below zero: no restart is coming. */
 	private static int told = -1;
 	private static long toldAt;
-
-	/**
-	 * In the limbo (where Gate keeps players while their server restarts) the player is inside the
-	 * rift: its other side fills the screen. Known by the server's brand or by the limbo's line
-	 * above the hotbar; lasts until the next server.
-	 */
+	/** Known by the server's brand or by the limbo's line above the hotbar; lasts until the next server. */
 	private static boolean limbo;
 	private static long limboSince;
-	/** A white flash that fades: on the way into the limbo and out of it. */
-	private static long flashAt;
+	private static long backAt;
 	private static Object stale;
-	static final String LIMBO_LINE = "Вернём тебя на сервер";
-	static final float FLASH_MS = 1400;
 
 	private RiftRestart() {
 	}
 
-	/** A new server: out of the limbo with a flash, and no old countdown. */
+	/** A new server: out of the limbo, and no old countdown. */
 	static void joined() {
 		// The line above the hotbar outlives the server that sent it: the old one is no sign.
-		stale = ((pro.minehouse.riftclient.mixin.HudAccess) Minecraft.getInstance().gui.hud).minehouse$actionBar();
+		stale = ((HudAccess) Minecraft.getInstance().gui.hud).minehouse$actionBar();
 		if (limbo) {
-			flashAt = System.currentTimeMillis();
+			backAt = System.currentTimeMillis();
 		}
 		limbo = false;
 		told = -1;
 	}
 
-	static boolean inLimbo() {
+	public static boolean inLimbo() {
 		return limbo;
 	}
 
 	static boolean limboSign(String brand, String actionBar) {
 		return (brand != null && brand.toLowerCase(java.util.Locale.ROOT).contains("limbo")) || (actionBar != null && actionBar.contains(LIMBO_LINE));
-	}
-
-	/** How far inside the rift the screen is (0..1). */
-	static float inside() {
-		return limbo ? Math.min(1, (System.currentTimeMillis() - limboSince) / 600f) : 0;
-	}
-
-	static float flash() {
-		float f = 1 - (System.currentTimeMillis() - flashAt) / FLASH_MS;
-		return Math.max(0, Math.min(1, f));
 	}
 
 	/** Seconds in a boss bar's name, or -1 when it is not the countdown. */
@@ -80,23 +70,20 @@ public final class RiftRestart {
 		return hours * 3600 + Integer.parseInt(m.group(2)) * 60 + Integer.parseInt(m.group(3));
 	}
 
-	/** The tears of the countdown are off until they are redone: they did not look good. The plate and the limbo stay. */
-	static final boolean COUNTDOWN = false;
-
 	static void tick(Minecraft mc) {
 		if (mc.level != null && mc.player != null && !limbo) {
-			net.minecraft.network.chat.Component bar = ((pro.minehouse.riftclient.mixin.HudAccess) mc.gui.hud).minehouse$actionBar();
+			Component bar = ((HudAccess) mc.gui.hud).minehouse$actionBar();
 			if (limboSign(mc.player.connection.serverBrand(), bar == null || bar == stale ? null : bar.getString())) {
 				limbo = true;
-				limboSince = System.currentTimeMillis();
-				flashAt = limboSince;
+				// Straight from a countdown the field is already there; otherwise it comes in.
+				limboSince = System.currentTimeMillis() - (told >= 0 ? 10000 : 0);
 			}
 		}
 		if (mc.level == null) {
 			limbo = false;
 		}
 		int now = -1;
-		if (COUNTDOWN && mc.level != null) {
+		if (mc.level != null) {
 			for (LerpingBossEvent e : ((BossBarsAccess) mc.gui.hud.getBossOverlay()).minehouse$events().values()) {
 				now = Math.max(now, seconds(e.getName().getString()));
 			}
@@ -115,50 +102,55 @@ public final class RiftRestart {
 		return Math.max(0, told - (System.currentTimeMillis() - toldAt) / 1000f);
 	}
 
+	/** How much of the screen the field has taken (0..1). */
+	static float field() {
+		float f = 0;
+		if (limbo) {
+			f = Math.min(1, (System.currentTimeMillis() - limboSince) / 600f);
+		} else {
+			float left = left();
+			if (left >= 0 && left <= FADE) {
+				float t = 1 - left / FADE;
+				f = t * t * (3 - 2 * t);
+			}
+			f = Math.max(f, 1 - (System.currentTimeMillis() - backAt) / BACK_MS);
+		}
+		return Math.max(0, Math.min(1, f));
+	}
+
 	static boolean any() {
-		float left = left();
-		return limbo || flash() > 0 || (left >= 0 && left <= CREEP);
+		return field() > 0;
 	}
 
-	private static float[] tear(float x0, float y0, float x1, float y1, float grown, float open, float seed) {
-		return new float[] {x0, y0, x0 + (x1 - x0) * grown, y0 + (y1 - y0) * grown, open, seed, 0, 0};
-	}
-
-	/** The tears of the screen for this many seconds left, as the shader takes them (see {@link RiftTear#project}). */
+	/** What the shader takes of it: no tear, only the first slot's number for the whole screen (see {@link RiftTear#upload}). */
 	static List<float[]> tears(float left) {
 		List<float[]> out = new ArrayList<>();
-		if (limbo || flash() > 0) {
-			// Inside the rift: two tears drift slowly over its other side. The first slot carries
-			// how far inside the screen is and the flash.
-			float t = (System.currentTimeMillis() % 100000) / 1000f;
-			float sway = (float) Math.sin(t * 0.3) * 0.05f;
-			float[] first = tear(0.22f + sway, 0.12f, 0.36f - sway, 0.9f, 1, limbo ? 0.7f : 0, 2.2f);
-			first[6] = inside();
-			first[7] = flash();
+		float field = field();
+		if (field > 0) {
+			float[] first = new float[8];
+			first[6] = field;
 			out.add(first);
-			if (limbo) {
-				out.add(tear(0.80f - sway, 0.95f, 0.66f + sway, 0.2f, 1, 0.6f, 6.4f));
-			}
-			return out;
-		}
-		if (left < 0 || left > CREEP) {
-			return out;
-		}
-		float p = 1 - left / CREEP;
-		if (left <= OPEN) {
-			float q = 1 - left / OPEN;
-			// The last second and a half it tears wide open: the other side fills the screen.
-			float burst = left < 1.5f ? (1.5f - left) / 1.5f : 0;
-			out.add(tear(0.5f, 0.5f - 0.45f * q, 0.5f, 0.5f + 0.45f * q, 1, 0.5f + 0.7f * q + 14 * burst * burst, 3.7f));
-		}
-		// They come out of nothing, not at once.
-		float grown = 0.1f + 0.9f * p;
-		float open = Math.min(1, p * 4) * (0.5f + 0.5f * p);
-		out.add(tear(-0.02f, 1.02f, 0.34f, 0.56f, grown, open, 1.3f));
-		out.add(tear(1.02f, -0.02f, 0.68f, 0.42f, grown, open, 8.1f));
-		if (p > 0.5f) {
-			out.add(tear(1.02f, 0.9f, 0.74f, 0.7f, (p - 0.5f) * 2, open, 5.9f));
 		}
 		return out;
+	}
+
+	/** The words of the limbo, laid out as on the site: a small plate, the name, one line. */
+	static void draw(GuiGraphicsExtractor g, Font font, int w, int h) {
+		if (!limbo) {
+			return;
+		}
+		float a = Math.min(1, Math.max(0, (System.currentTimeMillis() - limboSince - 300) / 500f));
+		if (a <= 0.02f) {
+			return;
+		}
+		int cy = h / 2 - 14;
+		String plate = "перезапуск сервера · play.minehouse.pro";
+		int pw = font.width(plate) + 22;
+		Ui.panel(g, w / 2 - pw / 2, cy - 30, pw, 13, 0x18181B, 0.9f * a);
+		boolean lit = (System.currentTimeMillis() / 700) % 2 == 0;
+		g.fill(w / 2 - pw / 2 + 6, cy - 25, w / 2 - pw / 2 + 9, cy - 22, Ui.ink(lit ? Ui.YELLOW : 0x7A6510, a));
+		g.text(font, plate, w / 2 - pw / 2 + 14, cy - 27, Ui.ink(0xE4E4E7, a), false);
+		Ui.big(g, font, Component.literal("MINEHOUSE").withStyle(Style.EMPTY.withBold(true)), w / 2, cy - 8, 4f, Ui.ink(Ui.WHITE, a), 1);
+		g.centeredText(font, "Вернём тебя на сервер автоматически, выходить не нужно.", w / 2, cy + 36, Ui.ink(0xD4D4D8, a));
 	}
 }

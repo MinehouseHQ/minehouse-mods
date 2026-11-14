@@ -117,6 +117,34 @@ vec3 through(vec2 q, float seconds, float seed) {
     return c + star * (1.0 - smoothstep(0.3, 0.6, clouds));
 }
 
+// The first screen of the MineHouse site: near-black, a faint arc of light over the horizon and
+// slow waves of small dots on the ground below it.
+vec3 field(vec2 uv, float aspect, float seconds) {
+    vec3 c = vec3(0.035, 0.035, 0.043);
+    float x = (uv.x - 0.5) * aspect;
+    // The horizon bends down to the sides, as a wide lens would show it.
+    float horizon = 0.30 - x * x * 0.035;
+    float arc = exp(-abs(uv.y - horizon) * 55.0) * 0.10 + exp(-abs(uv.y - horizon) * 9.0) * 0.035;
+    c += vec3(0.85, 0.87, 1.0) * arc * exp(-x * x * 0.9);
+    // The ground: four ranges of low hills, the far ones first; each is lit along its crest and
+    // falls into the dark below it. All of it is seen through one even grid of dots.
+    float lit = 0.0;
+    for (int k = 0; k < 4; k++) {
+        float near = float(k) / 3.0;
+        float wide = mix(2.6, 1.3, near);
+        float ridge = mix(0.23, 0.10, near)
+            + (fbm(vec2(x * wide + float(k) * 7.3 + seconds * 0.012 * (1.0 + near), float(k) * 3.1 + seconds * 0.02)) - 0.45) * mix(0.16, 0.28, near);
+        float under = ridge - uv.y;
+        if (under > 0.0) {
+            lit = exp(-under * mix(22.0, 9.0, near)) * mix(0.55, 1.0, near) * smoothstep(0.0, 0.004, under);
+        }
+    }
+    vec2 cell = fract(vec2(x, uv.y) * 150.0) - 0.5;
+    float dot_ = 1.0 - smoothstep(0.22, 0.34, length(cell));
+    c += vec3(0.95) * dot_ * lit * exp(-x * x * 0.35);
+    return c;
+}
+
 void main() {
     vec2 fromCentre = texCoord - 0.5;
     // 0 in the middle, about 1 in the corners, whatever the shape of the window
@@ -161,14 +189,11 @@ void main() {
     float dark = clamp(edge * Vignette * (1.0 + Pulse * (beat - 0.35)), 0.0, 1.0);
     color = mix(color, EdgeColor.rgb * (0.22 + 0.3 * Pulse * beat), dark);
 
-    // Inside the rift (waiting for a server to come back) its other side is all there is.
-    if (Tear0B.z > 0.0) {
-        vec2 q = (texCoord - 0.5) * vec2(aspect, 1.0);
-        float turn = seconds * 0.03;
-        q = mat2(cos(turn), -sin(turn), sin(turn), cos(turn)) * q;
-        vec3 other = through(q * 0.9, seconds * 0.6, 4.2);
-        other *= 0.55 + 0.45 * (1.0 - smoothstep(0.1, 0.9, length(q)));
-        color = mix(color, other, Tear0B.z);
+    // A restart (its last seconds, and the wait for the server to come back): the picture gives
+    // way to the field of the MineHouse site.
+    float gone = clamp(Tear0B.z, 0.0, 1.0);
+    if (gone > 0.0) {
+        color = mix(color, field(texCoord, aspect, seconds), gone);
     }
 
     // Then the tears themselves, over everything: the light of the edge and what is behind it.
@@ -180,7 +205,7 @@ void main() {
         vec4 k = tearAt(tearA[i], tearB[i], texCoord, aspect, seconds, across);
         // Above one a tear is bursting: it is wider than it is long and goes white.
         float burst = clamp((tearB[i].x - 1.3) / 6.0, 0.0, 1.0);
-        float open = min(tearB[i].x, 1.0);
+        float open = min(tearB[i].x, 1.0) * (1.0 - gone);
         float out_ = max(k.x, 0.0);
         float halo = 0.012 / (out_ + 0.012);
         float flicker = 0.85 + 0.15 * sin(seconds * 17.0 + tearB[i].y * 3.0) * sin(seconds * 5.3);
