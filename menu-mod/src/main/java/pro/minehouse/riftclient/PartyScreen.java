@@ -262,6 +262,7 @@ public final class PartyScreen extends Screen {
 		Ui.label(g, this.font, "ОТРЯД", rx, ry - 9, 0xB9A9D6);
 
 		super.extractRenderState(g, mouseX, mouseY, partialTick);
+		RiftNotice.draw(g, this.font, this.width, 50);
 	}
 
 	@Override

@@ -13,6 +13,8 @@ public final class RiftFx {
 	public static final Identifier LOW = Identifier.fromNamespaceAndPath("minehouse-rift", "rift_low");
 	public static final Identifier DOWNED = Identifier.fromNamespaceAndPath("minehouse-rift", "rift_downed");
 	public static final Identifier LOBBY = Identifier.fromNamespaceAndPath("minehouse-rift", "rift_lobby");
+	/** Outside the mode's own looks: only the rift itself, the rest of the screen as it is. */
+	public static final Identifier TEAR = Identifier.fromNamespaceAndPath("minehouse-rift", "rift_tear");
 	/** Below this share of health the screen says so. */
 	static final float LOW_HEALTH = 0.35f;
 
@@ -35,6 +37,7 @@ public final class RiftFx {
 		}
 		RiftUiPayloads.Run run = RiftHud.run();
 		float share = mc.player.getHealth() / Math.max(1f, mc.player.getMaxHealth());
-		return pick(TopDown.active(), TopDown.fixed(), run.inRun(), run.downLeft() >= 0 || TopDown.downed(), share);
+		Identifier fx = pick(TopDown.active(), TopDown.fixed(), run.inRun(), run.downLeft() >= 0 || TopDown.downed(), share);
+		return fx == null && RiftTear.any() ? TEAR : fx;
 	}
 }

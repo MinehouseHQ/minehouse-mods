@@ -202,6 +202,9 @@ public final class RiftHud {
 			results(g, font, w, h, now);
 			return;
 		}
+		if (!lobbyScreen && RiftNotice.on()) {
+			RiftNotice.draw(g, font, w, run.inRun() ? 30 : 8);
+		}
 		if (run.inRun() && !screen) {
 			runHud(g, font, mc, w, h);
 		}
