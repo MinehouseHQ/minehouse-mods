@@ -40,6 +40,8 @@ public final class MinehouseRiftClient implements ClientModInitializer {
 		ClientTickEvents.END_CLIENT_TICK.register(TopDown::tick);
 		ClientTickEvents.END_CLIENT_TICK.register(DownedAnim::tick);
 		ClientTickEvents.END_CLIENT_TICK.register(RiftTear::tick);
+		ClientTickEvents.END_CLIENT_TICK.register(RiftRestart::tick);
+		ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> RiftRestart.joined());
 		HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("minehouse-rift", "cursor"), MinehouseRiftClient::cursor);
 
 		// The mode's own interface: nothing of it goes to the chat.

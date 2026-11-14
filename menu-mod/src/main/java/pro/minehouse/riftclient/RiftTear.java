@@ -83,7 +83,7 @@ public final class RiftTear {
 
 	/** Whether a rift is near enough to be drawn. */
 	static boolean any() {
-		return !tears.isEmpty();
+		return !tears.isEmpty() || RiftRestart.any();
 	}
 
 	/** The flat picture gives way to the shader while the shader works. */
@@ -138,6 +138,23 @@ public final class RiftTear {
 			return;
 		}
 		float[] data = project(tears, camera.getViewRotationProjectionMatrix(new Matrix4f()), camera.position());
+		// The tears of a coming restart lie on the screen itself and go first.
+		List<float[]> screen = RiftRestart.tears(RiftRestart.left());
+		if (!screen.isEmpty()) {
+			float[] all = new float[MAX * 8];
+			int n = 0;
+			for (float[] t : screen) {
+				if (n < MAX) {
+					System.arraycopy(t, 0, all, n++ * 8, 8);
+				}
+			}
+			for (int i = 0; i < MAX && n < MAX; i++) {
+				if (data[i * 8 + 4] > 0 && !RiftRestart.inLimbo()) {
+					System.arraycopy(data, i * 8, all, n++ * 8, 8);
+				}
+			}
+			data = all;
+		}
 		if (buffer == null || buffer.isClosed()) {
 			buffer = RenderSystem.getDevice().createBuffer(() -> "MineHouse rift tears", GpuBuffer.USAGE_UNIFORM | GpuBuffer.USAGE_COPY_DST, BYTES);
 		}

@@ -202,6 +202,10 @@ public final class RiftHud {
 			results(g, font, w, h, now);
 			return;
 		}
+		if (RiftRestart.inLimbo() && mc.gui.screen() == null) {
+			Ui.big(g, font, "СЕРВЕР ПЕРЕЗАПУСКАЕТСЯ", w / 2, h / 2 - 16, 2f, Ui.ink(Ui.WHITE, 1), 1);
+			g.centeredText(font, "Ты в разломе. Вернём тебя автоматически, выходить не нужно.", w / 2, h / 2 + 10, Ui.ink(Ui.MUTED, 1));
+		}
 		if (!lobbyScreen && RiftNotice.on()) {
 			RiftNotice.draw(g, font, w, run.inRun() ? 30 : 8);
 		}

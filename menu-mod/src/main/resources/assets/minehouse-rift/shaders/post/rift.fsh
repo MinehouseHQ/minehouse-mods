@@ -25,7 +25,8 @@ layout(std140) uniform RiftConfig {
 };
 
 // The rifts in sight, four at most. A: both ends of the tear on the screen (0..1), bottom then
-// top. B: x how open it is (0: none), y its seed.
+// top. B: x how open it is (0: none), y its seed. The first B also carries, for the whole screen,
+// z: how far inside the rift the viewer is (0..1) and w: a white flash (0..1).
 layout(std140) uniform RiftTears {
     vec4 Tear0A;
     vec4 Tear0B;
@@ -93,7 +94,7 @@ vec4 tearAt(vec4 a, vec4 b, vec2 uv, float aspect, float seconds, out vec2 acros
     float tc = clamp(t, 0.0, 1.0);
     float line = crack(tc * 6.0 + seed) * 0.16 + crack(tc * 19.0 + seed * 3.0 + floor(seconds * 7.0) * 0.37) * 0.035;
     // The ends are pinned, the middle wanders.
-    float body = sin(3.14159265 * tc);
+    float body = max(sin(3.14159265 * tc), 0.0);
     line *= smoothstep(0.0, 0.25, body);
     float breath = 0.85 + 0.15 * sin(seconds * 2.3 + seed) + 0.06 * sin(seconds * 11.0 + seed * 5.0);
     float width = 0.15 * pow(body, 0.75) * (0.7 + 0.6 * abs(crack(tc * 11.0 + seed * 7.0))) * b.x * breath;
@@ -136,9 +137,11 @@ void main() {
         }
         vec2 across;
         vec4 k = tearAt(tearA[i], tearB[i], texCoord, aspect, seconds, across);
-        float near = exp(-max(k.x, 0.0) * 7.0) * tearB[i].x;
+        float near = exp(-max(k.x, 0.0) * 7.0);
         float wave = sin(k.y * 28.0 - seconds * 5.0 + tearB[i].y) * 0.35 + 1.0;
-        bend -= across * sign(k.z) * near * wave * k.w * 0.085;
+        // Only beside the tear, not on the line it would run on past its ends.
+        float beside = smoothstep(-0.12, 0.04, k.y) * (1.0 - smoothstep(0.96, 1.12, k.y));
+        bend -= across * sign(k.z) * near * wave * k.w * 0.085 * beside * min(tearB[i].x, 1.0);
     }
     vec2 at = texCoord + bend;
 
@@ -158,6 +161,16 @@ void main() {
     float dark = clamp(edge * Vignette * (1.0 + Pulse * (beat - 0.35)), 0.0, 1.0);
     color = mix(color, EdgeColor.rgb * (0.22 + 0.3 * Pulse * beat), dark);
 
+    // Inside the rift (waiting for a server to come back) its other side is all there is.
+    if (Tear0B.z > 0.0) {
+        vec2 q = (texCoord - 0.5) * vec2(aspect, 1.0);
+        float turn = seconds * 0.03;
+        q = mat2(cos(turn), -sin(turn), sin(turn), cos(turn)) * q;
+        vec3 other = through(q * 0.9, seconds * 0.6, 4.2);
+        other *= 0.55 + 0.45 * (1.0 - smoothstep(0.1, 0.9, length(q)));
+        color = mix(color, other, Tear0B.z);
+    }
+
     // Then the tears themselves, over everything: the light of the edge and what is behind it.
     for (int i = 0; i < 4; i++) {
         if (tearB[i].x <= 0.0) {
@@ -165,7 +178,9 @@ void main() {
         }
         vec2 across;
         vec4 k = tearAt(tearA[i], tearB[i], texCoord, aspect, seconds, across);
-        float open = tearB[i].x;
+        // Above one a tear is bursting: it is wider than it is long and goes white.
+        float burst = clamp((tearB[i].x - 1.3) / 6.0, 0.0, 1.0);
+        float open = min(tearB[i].x, 1.0);
         float out_ = max(k.x, 0.0);
         float halo = 0.012 / (out_ + 0.012);
         float flicker = 0.85 + 0.15 * sin(seconds * 17.0 + tearB[i].y * 3.0) * sin(seconds * 5.3);
@@ -173,15 +188,17 @@ void main() {
         color += TearRim * exp(-out_ * 4.5) * 0.22 * open;
         // Thin sparks run out of the tear along its length.
         float spark = crack(k.y * 9.0 + floor(seconds * 9.0) * 1.3 + tearB[i].y) * 0.5;
-        float thread = smoothstep(0.012, 0.0, abs(k.z - spark * (0.25 + out_))) * exp(-out_ * 9.0) * step(0.0, k.y) * step(k.y, 1.0);
+        float thread = (1.0 - smoothstep(0.0, 0.012, abs(k.z - spark * (0.25 + out_)))) * exp(-out_ * 9.0) * step(0.0, k.y) * step(k.y, 1.0);
         color += vec3(1.0, 0.9, 1.0) * thread * 0.7 * open * step(0.55, hash1(floor(seconds * 9.0) + float(i)));
         if (k.x < 0.0) {
             float inside = clamp(-k.x / 0.03, 0.0, 1.0);
             vec3 other = through(vec2(k.z, k.y) * vec2(2.0, 1.0), seconds, tearB[i].y);
             vec3 core = mix(vec3(1.0, 0.95, 1.0), other, smoothstep(0.0, 0.6, inside));
-            color = mix(color, core, open);
+            color = mix(color, mix(core, vec3(1.0), burst), open);
         }
     }
+
+    color = mix(color, vec3(1.0), Tear0B.w);
 
     fragColor = vec4(color, 1.0);
 }
