@@ -36,7 +36,7 @@ public final class RiftTear {
 	/** The uniform block of the shader: for each tear two vec4. */
 	static final String BLOCK = "RiftTears";
 	static final int MAX = 4;
-	static final int BYTES = MAX * 2 * 16 + 16;
+	static final int BYTES = MAX * 2 * 16 + 16 + 64;
 	/** How far a tear is drawn from, in blocks. */
 	static final double RANGE = 96;
 	/** Part of the picture's side that the tear in it takes. */
@@ -91,45 +91,45 @@ public final class RiftTear {
 		return System.currentTimeMillis() - uploadedAt < 500 && picture(e);
 	}
 
-	/** Each tear as the shader wants it: both ends on the screen (0..1), how open it is, its seed. */
+	/**
+	 * Each rift as the shader wants it: where its middle is from the viewer, in blocks, and half its
+	 * height; then how open it is, its seed, its depth on the screen and the zoom of the view. The
+	 * shader puts every piece of it on the screen itself, so that the pieces lie at different depths.
+	 */
 	static float[] project(List<Tear> list, Matrix4f viewProjection, Vec3 camera) {
 		float[] out = new float[MAX * 8];
 		int n = 0;
 		Vector4f v = new Vector4f();
+		float zoom = (float) Math.sqrt(viewProjection.m01() * viewProjection.m01() + viewProjection.m11() * viewProjection.m11()
+				+ viewProjection.m21() * viewProjection.m21());
 		for (Tear t : list) {
 			if (n >= MAX) {
 				break;
 			}
-			// Only the middle is put on the screen, and the size follows from how far it is. Putting
-			// both ends there went wrong as soon as one of them came beside or behind the viewer.
 			Vec3 middle = t.bottom().add(t.top()).scale(0.5).subtract(camera);
 			v.set((float) middle.x, (float) middle.y, (float) middle.z, 1).mul(viewProjection);
-			if (v.w < 0.3f) {
+			if (v.w < 0.6f) {
 				continue;
 			}
-			float zoom = (float) Math.sqrt(viewProjection.m01() * viewProjection.m01() + viewProjection.m11() * viewProjection.m11()
-					+ viewProjection.m21() * viewProjection.m21());
-			float half = (float) (t.top().distanceTo(t.bottom()) * 0.5) * zoom / v.w * 0.5f;
-			float x = v.x / v.w * 0.5f + 0.5f;
-			float y = v.y / v.w * 0.5f + 0.5f;
-			float[] ends = {x, y - half, x, y + half};
 			float depth = RenderSystem.getDevice().getDeviceInfo().isZZeroToOne() ? v.z / v.w : v.z / v.w * 0.5f + 0.5f;
-			float[] depths = {depth, depth};
 			double far = middle.length();
 			// It fades when the viewer stands in it, and far away.
 			float open = (float) Math.max(0, Math.min(1, Math.min((RANGE - far) / 12, (far - 1.0) / 2.5)));
-			System.arraycopy(ends, 0, out, n * 8, 4);
+			out[n * 8] = (float) middle.x;
+			out[n * 8 + 1] = (float) middle.y;
+			out[n * 8 + 2] = (float) middle.z;
+			out[n * 8 + 3] = (float) (t.top().distanceTo(t.bottom()) * 0.5);
 			out[n * 8 + 4] = open;
 			out[n * 8 + 5] = t.seed();
-			out[n * 8 + 6] = depths[0];
-			out[n * 8 + 7] = depths[1];
+			out[n * 8 + 6] = depth;
+			out[n * 8 + 7] = zoom;
 			n++;
 		}
 		return out;
 	}
 
 	/** Before the screen effects of a frame are applied: ours learn where the tears are. */
-	public static void upload(Camera camera, List<PostChain> applied) {
+	public static void upload(Matrix4f view, Vec3 camera, List<PostChain> applied) {
 		boolean ours = false;
 		for (PostChain chain : applied) {
 			ours |= chain.id().getNamespace().equals(MODEL.getNamespace());
@@ -137,7 +137,7 @@ public final class RiftTear {
 		if (!ours) {
 			return;
 		}
-		float[] data = project(tears, camera.getViewRotationProjectionMatrix(new Matrix4f()), camera.position());
+		float[] data = project(tears, view, camera);
 		if (buffer == null || buffer.isClosed()) {
 			buffer = RenderSystem.getDevice().createBuffer(() -> "MineHouse rift tears", GpuBuffer.USAGE_UNIFORM | GpuBuffer.USAGE_COPY_DST, BYTES);
 		}
@@ -148,6 +148,9 @@ public final class RiftTear {
 			}
 			// After the tears, the numbers of the whole screen: how much of it a restart has taken.
 			bytes.putFloat(RiftRestart.field()).putFloat(0).putFloat(0).putFloat(0);
+			// And the view itself, with the sway of walking in it, for the shader to place things by.
+			view.get(bytes);
+			bytes.position(bytes.position() + 64);
 			bytes.flip();
 			RenderSystem.getDevice().createCommandEncoder().writeToBuffer(buffer.slice(), bytes);
 		}

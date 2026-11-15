@@ -39,6 +39,8 @@ layout(std140) uniform RiftTears {
     vec4 Tear3B;
     // x: how much of the screen the field of a restart has taken (0..1)
     vec4 Screen;
+    // the view the world was drawn with, the sway of walking in it
+    mat4 View;
 };
 
 layout(location = 0) out vec4 fragColor;
@@ -82,20 +84,23 @@ float fbm(vec2 p) {
     return v;
 }
 
-// Where this point of the screen lies about a rift: from its middle, in halves of its height.
-// `radius` is that half on the screen. A rift never takes more than most of the screen, however
-// near the viewer stands, so nothing of it can smear over the whole picture.
-vec2 about(vec4 a, vec2 uv, float aspect, out float radius) {
-    vec2 bottom = a.xy * vec2(aspect, 1.0);
-    vec2 top = a.zw * vec2(aspect, 1.0);
-    radius = clamp(length(top - bottom) * 0.5, 1.0e-4, 0.6);
-    return (uv * vec2(aspect, 1.0) - (bottom + top) * 0.5) / radius;
+// Where this point of the screen lies about something of a rift that hangs `offset` blocks from
+// its middle: in halves of the rift's height, as seen at that depth. `radius` is that half on the
+// screen and `nearness` grows as the thing comes nearer. A rift never takes more than most of the
+// screen, however near the viewer stands, so nothing of it can smear over the whole picture.
+// a: the middle from the viewer in blocks, and half the height. b.w: the zoom of the view.
+vec2 about(vec4 a, vec4 b, vec3 offset, vec2 uv, float aspect, out float radius, out float nearness) {
+    vec4 clip = View * vec4(a.xyz + offset, 1.0);
+    float w = max(clip.w, 0.2);
+    nearness = 1.0 / w;
+    radius = clamp(a.w * b.w / w * 0.5, 1.0e-4, 0.6);
+    return (uv - (clip.xy / w * 0.5 + 0.5)) * vec2(aspect, 1.0) / radius;
 }
 
 // 1 where nothing of the world stands before the rift at this point of the screen, 0 where it is hidden.
 float shown(vec4 b, vec2 uv) {
     // The game keeps depth turned over: nearer is greater, about (near plane / distance).
-    return mix(b.z, b.w, 0.5) >= texture(DepthSampler, uv).r * 0.97 ? 1.0 : 0.0;
+    return b.z >= texture(DepthSampler, uv).r * 0.97 ? 1.0 : 0.0;
 }
 
 vec2 hash22(vec2 p) {
@@ -185,7 +190,8 @@ void main() {
             continue;
         }
         float radius;
-        vec2 p = about(tearA[i], texCoord, aspect, radius);
+        float nearness;
+        vec2 p = about(tearA[i], tearB[i], vec3(0.0), texCoord, aspect, radius, nearness);
         float d = length(p);
         bend -= p / max(d, 0.05) * exp(-d * 1.8) * 0.018 * radius * min(tearB[i].x, 1.0) * shown(tearB[i], texCoord) / vec2(aspect, 1.0);
     }
@@ -225,17 +231,23 @@ void main() {
             continue;
         }
         float radius;
-        vec2 p = about(tearA[i], texCoord, aspect, radius);
+        float nearness;
+        vec2 p = about(tearA[i], tearB[i], vec3(0.0), texCoord, aspect, radius, nearness);
         float d = length(p);
-        if (d > 2.0) {
+        if (d > 2.6) {
             continue;
         }
         float seed = tearB[i].y;
         float breath = seconds * 0.5 + seed;
 
         // A ragged cloud of blue light behind everything.
-        float mist = fbm(p * 1.5 + vec2(seed, seconds * 0.05));
-        float cloud = smoothstep(1.55, 0.55, d + (mist - 0.5) * 1.1);
+        // It hangs half the rift's height behind the middle, so it slides behind the shards.
+        float tall = tearA[i].w;
+        float r2;
+        float n2;
+        vec2 back = about(tearA[i], tearB[i], normalize(tearA[i].xyz) * tall * 0.5, texCoord, aspect, r2, n2);
+        float mist = fbm(back * 1.5 + vec2(seed, seconds * 0.05));
+        float cloud = smoothstep(1.55, 0.55, length(back) + (mist - 0.5) * 1.1);
         vec3 fog = mix(vec3(0.03, 0.22, 0.50), vec3(0.08, 0.60, 0.78), mist) + RiftCloud * exp(-d * 2.2) * 0.8;
         color = mix(color, fog, cloud * 0.9 * open);
         float angle = atan(p.y, p.x);
@@ -243,8 +255,9 @@ void main() {
         color += RiftCloud * rays * exp(-d * 1.1) * 0.55 * open;
 
         // The shards: a few great ones and many splinters, all pointing at the middle and
-        // drifting out of it. The last one found at a point lies on top.
+        // drifting out of it. The nearest one found at a point lies on top.
         float edge = -1.0;
+        float nearest = 0.0;
         float along = 0.0;
         float which = 0.0;
         vec2 inside = vec2(0.0);
@@ -271,10 +284,14 @@ void main() {
                 wide = 0.014 + 0.022 * h3;
             }
             start += 0.03 + 0.03 * sin(breath + id * 2.0);
+            // Each shard hangs at its own place in the air, a little off the middle.
+            vec3 off = (vec3(hash1(id * 7.1 + 1.0), hash1(id * 9.7 + 2.0), hash1(id * 11.3 + 3.0)) - 0.5) * vec3(0.55, 0.25, 0.55) * tall;
+            float close;
+            vec2 ps = about(tearA[i], tearB[i], off, texCoord, aspect, r2, close);
             float turn = (float(n) + 0.5 + (h3 - 0.5) * 0.6) / 12.0 * 6.2831853 + seed + 0.03 * sin(breath * 0.7 + id);
             vec2 dir = vec2(cos(turn), sin(turn));
-            float u = dot(p, dir);
-            float v = dot(p, vec2(-dir.y, dir.x));
+            float u = dot(ps, dir);
+            float v = dot(ps, vec2(-dir.y, dir.x));
             float t = (u - start) / len;
             if (t <= 0.0 || t > 1.3) {
                 continue;
@@ -286,7 +303,8 @@ void main() {
             float right = w * (0.6 + 0.8 * h2) - v - notch * 0.6;
             float end = (start + len + (h3 - 0.5) * 2.2 * v + wide * 0.35 * sin(v / wide * 4.0 + id) - u) * 0.8;
             float e = min(min(left, right), end);
-            if (e > 0.0) {
+            if (e > 0.0 && close > nearest) {
+                nearest = close;
                 edge = e;
                 along = t;
                 which = id;
@@ -312,8 +330,9 @@ void main() {
         float core = 0.022 / (d * d + 0.022);
         float flare = 0.004 / (p.y * p.y + 0.004) * exp(-abs(p.x) * 2.2);
         color += (vec3(0.85, 1.0, 1.0) * core * (1.2 + 0.12 * sin(seconds * 3.1 + seed)) + RiftCloud * flare * 0.5) * open;
-        vec2 grain = floor(p * 14.0);
-        vec2 dot2 = fract(p * 14.0) - 0.5;
+        vec2 front = about(tearA[i], tearB[i], -normalize(tearA[i].xyz) * tall * 0.4, texCoord, aspect, r2, n2);
+        vec2 grain = floor(front * 14.0);
+        vec2 dot2 = fract(front * 14.0) - 0.5;
         float spark = step(0.975, hash2(grain + seed)) * (0.5 + 0.5 * sin(seconds * 2.0 + hash2(grain) * 40.0));
         color += RiftPale * spark * exp(-dot(dot2, dot2) * 60.0) * cloud * open;
     }
