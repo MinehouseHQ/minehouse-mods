@@ -100,25 +100,24 @@ public final class RiftTear {
 			if (n >= MAX) {
 				break;
 			}
-			float[] ends = new float[4];
-			float[] depths = new float[2];
-			boolean seen = true;
-			for (int i = 0; i < 2; i++) {
-				Vec3 p = (i == 0 ? t.bottom() : t.top()).subtract(camera);
-				v.set((float) p.x, (float) p.y, (float) p.z, 1).mul(viewProjection);
-				if (v.w < 0.05f) {
-					seen = false;
-					break;
-				}
-				ends[i * 2] = v.x / v.w * 0.5f + 0.5f;
-				ends[i * 2 + 1] = v.y / v.w * 0.5f + 0.5f;
-				depths[i] = RenderSystem.getDevice().getDeviceInfo().isZZeroToOne() ? v.z / v.w : v.z / v.w * 0.5f + 0.5f;
-			}
-			if (!seen) {
+			// Only the middle is put on the screen, and the size follows from how far it is. Putting
+			// both ends there went wrong as soon as one of them came beside or behind the viewer.
+			Vec3 middle = t.bottom().add(t.top()).scale(0.5).subtract(camera);
+			v.set((float) middle.x, (float) middle.y, (float) middle.z, 1).mul(viewProjection);
+			if (v.w < 0.3f) {
 				continue;
 			}
-			double far = Math.sqrt(t.bottom().distanceToSqr(camera));
-			float open = (float) Math.max(0, Math.min(1, (RANGE - far) / 12));
+			float zoom = (float) Math.sqrt(viewProjection.m01() * viewProjection.m01() + viewProjection.m11() * viewProjection.m11()
+					+ viewProjection.m21() * viewProjection.m21());
+			float half = (float) (t.top().distanceTo(t.bottom()) * 0.5) * zoom / v.w * 0.5f;
+			float x = v.x / v.w * 0.5f + 0.5f;
+			float y = v.y / v.w * 0.5f + 0.5f;
+			float[] ends = {x, y - half, x, y + half};
+			float depth = RenderSystem.getDevice().getDeviceInfo().isZZeroToOne() ? v.z / v.w : v.z / v.w * 0.5f + 0.5f;
+			float[] depths = {depth, depth};
+			double far = middle.length();
+			// It fades when the viewer stands in it, and far away.
+			float open = (float) Math.max(0, Math.min(1, Math.min((RANGE - far) / 12, (far - 1.0) / 2.5)));
 			System.arraycopy(ends, 0, out, n * 8, 4);
 			out[n * 8 + 4] = open;
 			out[n * 8 + 5] = t.seed();

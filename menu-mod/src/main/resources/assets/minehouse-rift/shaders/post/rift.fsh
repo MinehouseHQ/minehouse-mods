@@ -44,9 +44,11 @@ layout(std140) uniform RiftTears {
 layout(location = 0) out vec4 fragColor;
 
 const vec3 Gray = vec3(0.3, 0.59, 0.11);
-const vec3 TearRim = vec3(0.80, 0.42, 1.0);
-const vec3 TearDeep = vec3(0.10, 0.03, 0.30);
-const vec3 TearSky = vec3(0.45, 0.85, 1.0);
+const vec3 RiftRim = vec3(0.72, 0.95, 1.0);
+const vec3 RiftGlow = vec3(0.16, 0.55, 0.95);
+const vec3 RiftFar = vec3(0.42, 0.22, 0.85);
+const vec3 RiftCloud = vec3(0.25, 0.75, 0.95);
+const vec3 RiftPale = vec3(0.74, 0.94, 0.96);
 
 float hash1(float n) {
     return fract(sin(n * 127.1) * 43758.5453);
@@ -80,52 +82,60 @@ float fbm(vec2 p) {
     return v;
 }
 
-// One tear at this point of the screen. Returns x: how far outside its edge (below zero: inside),
-// in lengths of the tear; y: along it (0 bottom, 1 top); z: across it, from its middle line;
-// w: its length on the screen. `across` is the direction over it on the screen.
-vec4 tearAt(vec4 a, vec4 b, vec2 uv, float aspect, float seconds, out vec2 across) {
-    vec2 p0 = a.xy * vec2(aspect, 1.0);
-    vec2 axis = a.zw * vec2(aspect, 1.0) - p0;
-    float len = max(length(axis), 1.0e-4);
-    vec2 dir = axis / len;
-    vec2 side = vec2(dir.y, -dir.x);
-    across = side / vec2(aspect, 1.0);
-    vec2 rel = uv * vec2(aspect, 1.0) - p0;
-    float t = dot(rel, dir) / len;
-    float s = dot(rel, side) / len;
-    float seed = b.y;
-    float tc = clamp(t, 0.0, 1.0);
-    float line = crack(tc * 6.0 + seed) * 0.16 + crack(tc * 19.0 + seed * 3.0 + floor(seconds * 7.0) * 0.37) * 0.035;
-    // The ends are pinned, the middle wanders.
-    float body = max(sin(3.14159265 * tc), 0.0);
-    line *= smoothstep(0.0, 0.25, body);
-    float breath = 0.85 + 0.15 * sin(seconds * 2.3 + seed) + 0.06 * sin(seconds * 11.0 + seed * 5.0);
-    float width = 0.15 * pow(body, 0.75) * (0.7 + 0.6 * abs(crack(tc * 11.0 + seed * 7.0))) * b.x * breath;
-    float beyond = max(max(-t, t - 1.0), 0.0);
-    float d = length(vec2(max(abs(s - line) - width, 0.0), beyond));
-    if (beyond == 0.0 && abs(s - line) < width) {
-        d = abs(s - line) - width;
-    }
-    return vec4(d, t, s - line, len);
+// Where this point of the screen lies about a rift: from its middle, in halves of its height.
+// `radius` is that half on the screen. A rift never takes more than most of the screen, however
+// near the viewer stands, so nothing of it can smear over the whole picture.
+vec2 about(vec4 a, vec2 uv, float aspect, out float radius) {
+    vec2 bottom = a.xy * vec2(aspect, 1.0);
+    vec2 top = a.zw * vec2(aspect, 1.0);
+    radius = clamp(length(top - bottom) * 0.5, 1.0e-4, 0.6);
+    return (uv * vec2(aspect, 1.0) - (bottom + top) * 0.5) / radius;
 }
 
-// 1 where nothing of the world stands before the tear at this point of the screen, 0 where it is hidden.
-float shown(vec4 b, float along, vec2 uv) {
-    float tear = mix(b.z, b.w, clamp(along, 0.0, 1.0));
-    float world = texture(DepthSampler, uv).r;
+// 1 where nothing of the world stands before the rift at this point of the screen, 0 where it is hidden.
+float shown(vec4 b, vec2 uv) {
     // The game keeps depth turned over: nearer is greater, about (near plane / distance).
-    return tear >= world * 0.97 ? 1.0 : 0.0;
+    return mix(b.z, b.w, 0.5) >= texture(DepthSampler, uv).r * 0.97 ? 1.0 : 0.0;
 }
 
-// What is seen through a tear: a bright sky of the other side behind slow clouds of the rift.
-vec3 through(vec2 q, float seconds, float seed) {
-    vec2 flow = q * 3.0 + vec2(seed, seconds * 0.25);
-    float clouds = fbm(flow + fbm(flow * 1.7 - seconds * 0.15) * 1.5);
-    vec3 c = mix(TearDeep, TearSky, smoothstep(0.25, 0.8, clouds));
-    c = mix(c, vec3(1.0), smoothstep(0.62, 0.95, clouds));
-    vec2 cell = floor(q * 60.0);
-    float star = step(0.985, hash2(cell + seed)) * (0.5 + 0.5 * sin(seconds * 3.0 + hash2(cell) * 40.0));
-    return c + star * (1.0 - smoothstep(0.3, 0.6, clouds));
+vec2 hash22(vec2 p) {
+    return fract(sin(vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)))) * 43758.5453);
+}
+
+// Broken glass: the piece this point falls in. Returns how far it is from the piece's straight
+// edge; `middle` is the piece's own point and `id` its number.
+float piece(vec2 q, out vec2 middle, out float id) {
+    vec2 cell = floor(q);
+    vec2 f = q - cell;
+    vec2 nearest = vec2(0.0);
+    vec2 to = vec2(0.0);
+    float first = 8.0;
+    for (int y = -1; y <= 1; y++) {
+        for (int x = -1; x <= 1; x++) {
+            vec2 g = vec2(float(x), float(y));
+            vec2 r = g + 0.12 + 0.76 * hash22(cell + g) - f;
+            float d = dot(r, r);
+            if (d < first) {
+                first = d;
+                to = r;
+                nearest = g;
+            }
+        }
+    }
+    middle = q + to;
+    id = hash2(cell + nearest + 3.7);
+    float edge = 8.0;
+    for (int y = -2; y <= 2; y++) {
+        for (int x = -2; x <= 2; x++) {
+            vec2 g = nearest + vec2(float(x), float(y));
+            vec2 r = g + 0.12 + 0.76 * hash22(cell + g) - f;
+            vec2 between = r - to;
+            if (dot(between, between) > 1.0e-5) {
+                edge = min(edge, dot(0.5 * (to + r), normalize(between)));
+            }
+        }
+    }
+    return edge;
 }
 
 // The first screen of the MineHouse site: near-black, a faint arc of light over the horizon and
@@ -166,7 +176,7 @@ void main() {
     float seconds = GameTime * 1200.0;
     float aspect = ScreenSize.x / max(ScreenSize.y, 1.0);
 
-    // The rifts first bend the picture around them, towards the tear and a little along it.
+    // The rifts first draw the picture a little towards their middle.
     vec4 tearA[4] = vec4[4](Tear0A, Tear1A, Tear2A, Tear3A);
     vec4 tearB[4] = vec4[4](Tear0B, Tear1B, Tear2B, Tear3B);
     vec2 bend = vec2(0.0);
@@ -174,13 +184,10 @@ void main() {
         if (tearB[i].x <= 0.0) {
             continue;
         }
-        vec2 across;
-        vec4 k = tearAt(tearA[i], tearB[i], texCoord, aspect, seconds, across);
-        float near = exp(-max(k.x, 0.0) * 7.0);
-        float wave = sin(k.y * 28.0 - seconds * 5.0 + tearB[i].y) * 0.35 + 1.0;
-        // Only beside the tear, not on the line it would run on past its ends.
-        float beside = smoothstep(-0.12, 0.04, k.y) * (1.0 - smoothstep(0.96, 1.12, k.y));
-        bend -= across * sign(k.z) * near * wave * k.w * 0.085 * beside * min(tearB[i].x, 1.0) * shown(tearB[i], k.y, texCoord);
+        float radius;
+        vec2 p = about(tearA[i], texCoord, aspect, radius);
+        float d = length(p);
+        bend -= p / max(d, 0.05) * exp(-d * 1.8) * 0.018 * radius * min(tearB[i].x, 1.0) * shown(tearB[i], texCoord) / vec2(aspect, 1.0);
     }
     vec2 at = texCoord + bend;
 
@@ -207,32 +214,109 @@ void main() {
         color = mix(color, field(texCoord, aspect, seconds), gone);
     }
 
-    // Then the tears themselves, over everything: the light of the edge and what is behind it.
+    // Then the rifts themselves: the air there is broken like glass. Pieces of it hang about a
+    // bright middle, the world shows through them out of place, light and rays come out between.
     for (int i = 0; i < 4; i++) {
         if (tearB[i].x <= 0.0) {
             continue;
         }
-        vec2 across;
-        vec4 k = tearAt(tearA[i], tearB[i], texCoord, aspect, seconds, across);
-        // Above one a tear is bursting: it is wider than it is long and goes white.
-        float burst = clamp((tearB[i].x - 1.3) / 6.0, 0.0, 1.0);
-        float open = min(tearB[i].x, 1.0) * (1.0 - gone) * shown(tearB[i], k.y, texCoord);
-        float out_ = max(k.x, 0.0);
-        float halo = 0.012 / (out_ + 0.012);
-        float flicker = 0.85 + 0.15 * sin(seconds * 17.0 + tearB[i].y * 3.0) * sin(seconds * 5.3);
-        color += TearRim * halo * halo * 1.6 * open * flicker;
-        color += TearRim * exp(-out_ * 4.5) * 0.22 * open;
-        // Thin sparks run out of the tear along its length.
-        float spark = crack(k.y * 9.0 + floor(seconds * 9.0) * 1.3 + tearB[i].y) * 0.5;
-        float thread = (1.0 - smoothstep(0.0, 0.012, abs(k.z - spark * (0.25 + out_)))) * exp(-out_ * 9.0) * step(0.0, k.y) * step(k.y, 1.0);
-        color += vec3(1.0, 0.9, 1.0) * thread * 0.7 * open * step(0.55, hash1(floor(seconds * 9.0) + float(i)));
-        if (k.x < 0.0) {
-            float inside = clamp(-k.x / 0.03, 0.0, 1.0);
-            vec3 other = through(vec2(k.z, k.y) * vec2(2.0, 1.0), seconds, tearB[i].y);
-            vec3 core = mix(vec3(1.0, 0.95, 1.0), other, smoothstep(0.0, 0.6, inside));
-            color = mix(color, mix(core, vec3(1.0), burst), open);
+        float open = min(tearB[i].x, 1.0) * (1.0 - gone) * shown(tearB[i], texCoord);
+        if (open <= 0.0) {
+            continue;
         }
+        float radius;
+        vec2 p = about(tearA[i], texCoord, aspect, radius);
+        float d = length(p);
+        if (d > 2.0) {
+            continue;
+        }
+        float seed = tearB[i].y;
+        float breath = seconds * 0.5 + seed;
+
+        // A ragged cloud of blue light behind everything.
+        float mist = fbm(p * 1.5 + vec2(seed, seconds * 0.05));
+        float cloud = smoothstep(1.55, 0.55, d + (mist - 0.5) * 1.1);
+        vec3 fog = mix(vec3(0.03, 0.22, 0.50), vec3(0.08, 0.60, 0.78), mist) + RiftCloud * exp(-d * 2.2) * 0.8;
+        color = mix(color, fog, cloud * 0.9 * open);
+        float angle = atan(p.y, p.x);
+        float rays = pow(max(sin(angle * 4.0 + seed + seconds * 0.05), 0.0), 30.0) + 0.6 * pow(max(sin(angle * 7.0 - seconds * 0.04 + seed * 2.0), 0.0), 50.0);
+        color += RiftCloud * rays * exp(-d * 1.1) * 0.55 * open;
+
+        // The shards: a few great ones and many splinters, all pointing at the middle and
+        // drifting out of it. The last one found at a point lies on top.
+        float edge = -1.0;
+        float along = 0.0;
+        float which = 0.0;
+        vec2 inside = vec2(0.0);
+        for (int n = 0; n < 12; n++) {
+            float id = float(n) + seed * 13.0;
+            float h1 = hash1(id * 1.7 + 0.3);
+            float h2 = hash1(id * 3.1 + 5.0);
+            float h3 = hash1(id * 5.3 + 9.0);
+            int kind = n - (n / 4) * 4;
+            float start;
+            float len;
+            float wide;
+            if (kind == 0) {
+                start = 0.10;
+                len = 0.85 + 0.35 * h1;
+                wide = 0.24 + 0.09 * h2;
+            } else if (kind == 2) {
+                start = 0.16 + 0.10 * h1;
+                len = 0.30 + 0.25 * h2;
+                wide = 0.07 + 0.04 * h3;
+            } else {
+                start = 0.14 + 0.35 * h1;
+                len = 0.22 + 0.50 * h2;
+                wide = 0.014 + 0.022 * h3;
+            }
+            start += 0.03 + 0.03 * sin(breath + id * 2.0);
+            float turn = (float(n) + 0.5 + (h3 - 0.5) * 0.6) / 12.0 * 6.2831853 + seed + 0.03 * sin(breath * 0.7 + id);
+            vec2 dir = vec2(cos(turn), sin(turn));
+            float u = dot(p, dir);
+            float v = dot(p, vec2(-dir.y, dir.x));
+            float t = (u - start) / len;
+            if (t <= 0.0 || t > 1.3) {
+                continue;
+            }
+            // Pointed at the middle, widest two thirds out, broken off askew at the end.
+            float w = wide * min(t / 0.5, 1.0) * (1.0 - 0.2 * smoothstep(0.6, 1.0, t));
+            float notch = wide * 0.16 * (floor(hash1(floor(u * 9.0 + id) + id) * 3.0) - 1.0) * smoothstep(0.2, 0.5, t);
+            float left = w * (0.6 + 0.8 * h1) + v + notch;
+            float right = w * (0.6 + 0.8 * h2) - v - notch * 0.6;
+            float end = (start + len + (h3 - 0.5) * 2.2 * v + wide * 0.35 * sin(v / wide * 4.0 + id) - u) * 0.8;
+            float e = min(min(left, right), end);
+            if (e > 0.0) {
+                edge = e;
+                along = t;
+                which = id;
+                inside = vec2(u, v);
+            }
+        }
+        if (edge > 0.0) {
+            // Slate-blue glass with the world dimly behind it, pale at the edges, cracked.
+            vec3 glass = mix(vec3(0.20, 0.22, 0.40), vec3(0.32, 0.40, 0.58), fbm(inside * 3.0 + which));
+            glass = mix(glass, texture(InSampler, at).rgb, 0.12);
+            glass += RiftPale * exp(-d * 5.0) * 0.45;
+            vec2 m2;
+            float id2;
+            float vein = piece(inside * vec2(2.2, 3.4) + which * 3.0 + 0.25 * fbm(inside * 6.0), m2, id2);
+            glass += RiftPale * (1.0 - smoothstep(0.0, 0.02, vein)) * 0.30 * smoothstep(0.0, 0.04, edge);
+            glass += RiftPale * (hash1(id2 * 31.0) - 0.5) * 0.09;
+            glass = mix(glass, RiftPale, (1.0 - smoothstep(0.0, 0.014, edge)) * 0.9);
+            glass += RiftPale * (1.0 - smoothstep(0.0, 0.07, edge)) * 0.10;
+            color = mix(color, glass, 0.93 * open);
+        }
+
+        // The middle burns over everything, with a flare across it, and a few sparks hang about.
+        float core = 0.022 / (d * d + 0.022);
+        float flare = 0.004 / (p.y * p.y + 0.004) * exp(-abs(p.x) * 2.2);
+        color += (vec3(0.85, 1.0, 1.0) * core * (1.2 + 0.12 * sin(seconds * 3.1 + seed)) + RiftCloud * flare * 0.5) * open;
+        vec2 grain = floor(p * 14.0);
+        vec2 dot2 = fract(p * 14.0) - 0.5;
+        float spark = step(0.975, hash2(grain + seed)) * (0.5 + 0.5 * sin(seconds * 2.0 + hash2(grain) * 40.0));
+        color += RiftPale * spark * exp(-dot(dot2, dot2) * 60.0) * cloud * open;
     }
 
-        fragColor = vec4(color, 1.0);
+    fragColor = vec4(color, 1.0);
 }
