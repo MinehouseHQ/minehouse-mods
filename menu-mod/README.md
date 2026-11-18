@@ -14,6 +14,7 @@ Events Editor и Zones Client. Каждая часть живёт в своём 
 | `pro.minehouse.zonesclient` | границы зон спавна линиями и стенами |
 | `pro.minehouse.eventseditor` | редактор шоу для админов (клавиша K) |
 | `pro.minehouse.riftclient` | режим «Разлом»: вид сверху, курсор, управление, интерфейс режима; картинка разлома |
+| `pro.minehouse.menu.voicefix` | Plasmo Voice не ломает OpenAL, если игра запустилась без звука (иначе вылет, когда наушники вернутся) |
 
 ## Меню
 

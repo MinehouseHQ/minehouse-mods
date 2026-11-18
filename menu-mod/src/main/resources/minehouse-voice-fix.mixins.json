@@ -1,0 +1,9 @@
+{
+  "required": false,
+  "package": "pro.minehouse.menu.voicefix",
+  "compatibilityLevel": "JAVA_25",
+  "client": ["PlasmoAlUtilMixin"],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}
