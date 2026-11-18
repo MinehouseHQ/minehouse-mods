@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
@@ -40,6 +41,8 @@ public final class MinehouseRiftClient implements ClientModInitializer {
 		ClientTickEvents.END_CLIENT_TICK.register(TopDown::tick);
 		ClientTickEvents.END_CLIENT_TICK.register(DownedAnim::tick);
 		ClientTickEvents.END_CLIENT_TICK.register(RiftTear::tick);
+		ClientTickEvents.END_CLIENT_TICK.register(BlackHoleBlocks::tick);
+		LevelRenderEvents.COLLECT_SUBMITS.register(BlackHoleBlocks::submit);
 		ClientTickEvents.END_CLIENT_TICK.register(RiftRestart::tick);
 		ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> RiftRestart.joined());
 		HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("minehouse-rift", "cursor"), MinehouseRiftClient::cursor);
