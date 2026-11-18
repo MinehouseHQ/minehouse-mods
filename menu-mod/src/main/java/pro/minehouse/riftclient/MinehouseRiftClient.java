@@ -41,6 +41,8 @@ public final class MinehouseRiftClient implements ClientModInitializer {
 		ClientTickEvents.END_CLIENT_TICK.register(TopDown::tick);
 		ClientTickEvents.END_CLIENT_TICK.register(DownedAnim::tick);
 		ClientTickEvents.END_CLIENT_TICK.register(RiftTear::tick);
+		PayloadTypeRegistry.clientboundPlay().register(HolePayload.TYPE, HolePayload.CODEC);
+		ClientPlayNetworking.registerGlobalReceiver(HolePayload.TYPE, (payload, context) -> BlackHoleBlocks.receive(payload));
 		ClientTickEvents.END_CLIENT_TICK.register(BlackHoleBlocks::tick);
 		LevelRenderEvents.COLLECT_SUBMITS.register(BlackHoleBlocks::submit);
 		ClientTickEvents.END_CLIENT_TICK.register(RiftRestart::tick);

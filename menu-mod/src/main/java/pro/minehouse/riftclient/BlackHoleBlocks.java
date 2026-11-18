@@ -38,10 +38,12 @@ import net.minecraft.world.phys.Vec3;
  * <li>pieces of the world (grass, stone, logs...) spiralling in.
  * </ul>
  *
- * <p>The server (Events, cue {@code black_hole}) shows everyone flat pictures; on the core one it
- * writes where the hole really is, how big it is and how open ({@code minehouse_hole} in the item's
- * custom data). This client finds that, hides the pictures and draws the hole itself. Without the
- * data (an older server) the pictures stay.
+ * <p>The server (Events, cue {@code black_hole}) shows everyone flat pictures, and tells this mod
+ * where the hole really is, how big it is and how open, and which two entities are this player's
+ * pictures ({@link HolePayload}, Events 0.12.2+). This client hides those pictures and draws the
+ * hole itself. Events 0.12.1 wrote the same on the core picture ({@code minehouse_hole} in the
+ * item's custom data), which is still read; on the live server it did not reach the client. Without
+ * either (an older server) the pictures stay.
  *
  * <p>The hole is hundreds of blocks wide and far away, past the fog. So, like the server's
  * pictures, it is drawn nearer and smaller by the same factor: it looks just as big, and the fog
@@ -79,6 +81,11 @@ public final class BlackHoleBlocks {
 
 	private static Hole hole;
 	private static double shownOpen;
+	/** The server's last word on the hole ({@link HolePayload}), and when it came. */
+	private static HolePayload told;
+	private static long toldAt;
+	/** The server says it twice a second; this long without a word and the hole is gone. */
+	private static final long TOLD_FOR = 1_500_000_000L;
 	private static final int[][] SHELL = cells(CELLS - 1.0, CELLS);
 
 	private BlackHoleBlocks() {
@@ -117,9 +124,23 @@ public final class BlackHoleBlocks {
 				tag.getDoubleOr("size", 0), tag.getDoubleOr("open", 0));
 	}
 
+	/** The server's word on the hole, from the network thread's handler. */
+	static void receive(HolePayload p) {
+		told = p;
+		toldAt = System.nanoTime();
+	}
+
+	private static HolePayload told() {
+		HolePayload p = told;
+		return p != null && System.nanoTime() - toldAt < TOLD_FOR ? p : null;
+	}
+
 	static void tick(Minecraft mc) {
 		Hole found = null;
-		if (mc.level != null) {
+		HolePayload p = told();
+		if (p != null && mc.level != null) {
+			found = new Hole(new Vec3(p.x(), p.y(), p.z()), p.size(), p.open());
+		} else if (mc.level != null) {
 			for (Entity e : mc.level.entitiesForRendering()) {
 				found = read(e);
 				if (found != null) {
@@ -140,6 +161,10 @@ public final class BlackHoleBlocks {
 	public static boolean hidden(Entity e) {
 		if (hole == null || !(e instanceof Display.ItemDisplay d)) {
 			return false;
+		}
+		HolePayload p = told();
+		if (p != null) {
+			return e.getId() == p.core() || e.getId() == p.rays();
 		}
 		Identifier model = d.getItemStack().get(DataComponents.ITEM_MODEL);
 		return CORE.equals(model) || RAYS.equals(model);
@@ -174,6 +199,19 @@ public final class BlackHoleBlocks {
 			b = 1 - 0.3f * s;
 		}
 		return 0xFF000000 | channel(r * bright) << 16 | channel(g * bright) << 8 | channel(b * bright);
+	}
+
+	/**
+	 * A colour for the glowing kinds, which blend over what is behind rather than add to it: the
+	 * strength goes into the alpha and the hue stays full, so on black it looks the same, and over
+	 * something bright a dim glow tints it instead of darkening it. The intro needs this.
+	 */
+	static int glowing(float r, float g, float b) {
+		float a = Math.min(1, Math.max(r, Math.max(g, b)));
+		if (a <= 0.002f) {
+			return 0;
+		}
+		return channel(a) << 24 | channel(r / a) << 16 | channel(g / a) << 8 | channel(b / a);
 	}
 
 	private static int channel(float v) {
@@ -347,7 +385,7 @@ public final class BlackHoleBlocks {
 		return mc.getModelManager().getBlockStateModelSet().getParticleMaterial(block.defaultBlockState()).sprite();
 	}
 
-	private static int argb(float bright, float r, float g, float b) {
+	static int argb(float bright, float r, float g, float b) {
 		return 0xFF000000 | channel(r * bright) << 16 | channel(g * bright) << 8 | channel(b * bright);
 	}
 
