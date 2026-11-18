@@ -58,9 +58,15 @@ final class SelfTest {
 			ui &= !RiftHud.inRun();
 			ui &= RiftHud.feedSize() == 0 && !RiftHud.lobby().inLobby();
 
-			MinehouseRiftClient.LOG.info(receiver && codec && geometry && on && off && ui ? "MINEHOUSE_RIFT_CLIENT_OK"
+			// The Chapter 2 opening: its channel, its music in the assets, and it starts on the word.
+			boolean intro = ClientPlayNetworking.getGlobalReceivers().contains(IntroPayload.TYPE.id())
+					&& client.getSoundManager().getSoundEvent(net.minecraft.resources.Identifier.fromNamespaceAndPath("minehouse-rift", "intro")) != null;
+			Intro.start();
+			intro &= Intro.playing();
+
+			MinehouseRiftClient.LOG.info(receiver && codec && geometry && on && off && ui && intro ? "MINEHOUSE_RIFT_CLIENT_OK"
 					: "MINEHOUSE_RIFT_CLIENT_FAIL: receiver " + receiver + ", codec " + codec + ", geometry " + geometry + ", on " + on + ", off " + off
-							+ ", ui " + ui);
+							+ ", ui " + ui + ", intro " + intro);
 			client.stop();
 		});
 	}

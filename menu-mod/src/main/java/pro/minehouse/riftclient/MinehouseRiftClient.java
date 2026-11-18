@@ -45,6 +45,11 @@ public final class MinehouseRiftClient implements ClientModInitializer {
 		ClientPlayNetworking.registerGlobalReceiver(HolePayload.TYPE, (payload, context) -> BlackHoleBlocks.receive(payload));
 		ClientTickEvents.END_CLIENT_TICK.register(BlackHoleBlocks::tick);
 		LevelRenderEvents.COLLECT_SUBMITS.register(BlackHoleBlocks::submit);
+		// The opening of Chapter 2, on the server's word; nothing of the game's interface over it.
+		PayloadTypeRegistry.clientboundPlay().register(IntroPayload.TYPE, IntroPayload.CODEC);
+		ClientPlayNetworking.registerGlobalReceiver(IntroPayload.TYPE, (payload, context) -> Intro.start());
+		ClientTickEvents.END_CLIENT_TICK.register(Intro::tick);
+		LevelRenderEvents.COLLECT_SUBMITS.register(Intro::submit);
 		ClientTickEvents.END_CLIENT_TICK.register(RiftRestart::tick);
 		ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> RiftRestart.joined());
 		HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("minehouse-rift", "cursor"), MinehouseRiftClient::cursor);
@@ -83,7 +88,7 @@ public final class MinehouseRiftClient implements ClientModInitializer {
 		// game interface belongs there.
 		for (Identifier vanilla : new Identifier[] {VanillaHudElements.HEALTH_BAR, VanillaHudElements.ARMOR_BAR, VanillaHudElements.FOOD_BAR}) {
 			HudElementRegistry.replaceElement(vanilla, old -> (g, delta) -> {
-				if (!RiftHud.inRun() && !RiftHud.lobby().inLobby()) {
+				if (!RiftHud.inRun() && !RiftHud.lobby().inLobby() && !Intro.playing()) {
 					old.extractRenderState(g, delta);
 				}
 			});
@@ -92,7 +97,15 @@ public final class MinehouseRiftClient implements ClientModInitializer {
 				VanillaHudElements.AIR_BAR, VanillaHudElements.INFO_BAR, VanillaHudElements.INFO_BAR_FOREGROUND, VanillaHudElements.EXPERIENCE_LEVEL,
 				VanillaHudElements.HELD_ITEM_TOOLTIP}) {
 			HudElementRegistry.replaceElement(vanilla, old -> (g, delta) -> {
-				if (!RiftHud.lobby().inLobby()) {
+				if (!RiftHud.lobby().inLobby() && !Intro.playing()) {
+					old.extractRenderState(g, delta);
+				}
+			});
+		}
+		for (Identifier vanilla : new Identifier[] {VanillaHudElements.CHAT, VanillaHudElements.BOSS_BAR, VanillaHudElements.SCOREBOARD,
+				VanillaHudElements.MOB_EFFECTS, VanillaHudElements.TITLE_AND_SUBTITLE, VanillaHudElements.OVERLAY_MESSAGE}) {
+			HudElementRegistry.replaceElement(vanilla, old -> (g, delta) -> {
+				if (!Intro.playing()) {
 					old.extractRenderState(g, delta);
 				}
 			});
