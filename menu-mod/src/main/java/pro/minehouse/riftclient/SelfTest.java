@@ -63,10 +63,12 @@ final class SelfTest {
 					&& client.getSoundManager().getSoundEvent(net.minecraft.resources.Identifier.fromNamespaceAndPath("minehouse-rift", "intro")) != null;
 			Intro.start();
 			intro &= Intro.playing();
+			// The end of Chapter 1: its channel is listened to.
+			boolean chapterEnd = ClientPlayNetworking.getGlobalReceivers().contains(ChapterEndPayload.TYPE.id());
 
-			MinehouseRiftClient.LOG.info(receiver && codec && geometry && on && off && ui && intro ? "MINEHOUSE_RIFT_CLIENT_OK"
+			MinehouseRiftClient.LOG.info(receiver && codec && geometry && on && off && ui && intro && chapterEnd ? "MINEHOUSE_RIFT_CLIENT_OK"
 					: "MINEHOUSE_RIFT_CLIENT_FAIL: receiver " + receiver + ", codec " + codec + ", geometry " + geometry + ", on " + on + ", off " + off
-							+ ", ui " + ui + ", intro " + intro);
+							+ ", ui " + ui + ", intro " + intro + ", chapterEnd " + chapterEnd);
 			client.stop();
 		});
 	}

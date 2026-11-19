@@ -24,6 +24,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import pro.minehouse.menu.ChapterEnd;
 import pro.minehouse.menu.MenuConfig;
 import pro.minehouse.menu.PackModsScreen;
 import pro.minehouse.menu.PackUpdater;
@@ -44,7 +45,11 @@ public abstract class TitleScreenMixin extends Screen {
 	private static final Identifier MINEHOUSE_LOGO = Identifier.fromNamespaceAndPath("minehouse-menu", "textures/gui/logo.png");
 	private static final int ACCENT = 0xD8B4FE;
 
+	private static final Identifier DOT = Identifier.fromNamespaceAndPath("minehouse-menu", "textures/gui/black_dot.png");
+	private static final Identifier DOT_GLOW = Identifier.fromNamespaceAndPath("minehouse-menu", "textures/gui/black_dot_glow.png");
+
 	private Button minehouse$play;
+	private int minehouse$dotY = -1;
 
 	@Shadow
 	private boolean fading;
@@ -74,13 +79,20 @@ public abstract class TitleScreenMixin extends Screen {
 		int top = singleplayer.getY();
 		int realmsY = realms.getY();
 
+		boolean ended = ChapterEnd.active();
 		this.minehouse$play = Button.builder(
 				ServerStatus.playLabel(),
 				b -> ConnectScreen.startConnecting(this, this.minecraft, ServerAddress.parseString(MenuConfig.serverAddress), ServerStatus.data(), false, null)
 			)
 			.bounds(left, top, 200, 20)
 			.build();
-		this.addRenderableWidget(this.minehouse$play);
+		if (ended) {
+			// Chapter 1 is over: nowhere to go, only the dot the world fell into (drawn over this row).
+			this.minehouse$play = null;
+			this.minehouse$dotY = top + 10;
+		} else {
+			this.addRenderableWidget(this.minehouse$play);
+		}
 
 		int row2 = top + 24;
 		singleplayer.setPosition(left, row2);
@@ -132,11 +144,14 @@ public abstract class TitleScreenMixin extends Screen {
 			this.minehouse$play.setMessage(ServerStatus.playLabel());
 			this.minehouse$play.setTooltip(Tooltip.create(ServerStatus.line()));
 		}
-		SelfTest.onTitleTick(this.minecraft, this.minehouse$play != null);
+		SelfTest.onTitleTick(this.minecraft, this.minehouse$play != null || this.minehouse$dotY >= 0);
 	}
 
 	@Inject(method = "extractRenderState", at = @At("TAIL"))
 	private void minehouse$status(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float a, CallbackInfo ci) {
+		if (this.minehouse$dotY >= 0 && ChapterEnd.active()) {
+			minehouse$dot(graphics);
+		}
 		if (this.fading) {
 			return;
 		}
@@ -154,5 +169,18 @@ public abstract class TitleScreenMixin extends Screen {
 			int color = PackUpdater.phase() == PackUpdater.Phase.READY ? 0xFFFF55 : 0xA0A0A0;
 			graphics.text(this.font, update, 2, 12, ARGB.color(255, color));
 		}
+	}
+
+	/** The black dot: a speck of black with a pale blue rim, its glow slowly breathing. */
+	private void minehouse$dot(GuiGraphicsExtractor graphics) {
+		int cx = this.width / 2;
+		int cy = this.minehouse$dotY;
+		float t = ChapterEnd.seconds();
+		float breath = 0.55f + 0.45f * (float) Math.sin(t * 1.3);
+		int glow = 40;
+		graphics.blit(RenderPipelines.GUI_TEXTURED, DOT_GLOW, cx - glow / 2, cy - glow / 2, 0.0F, 0.0F, glow, glow, 128, 128, 128, 128,
+			ARGB.white(breath));
+		int dot = 16;
+		graphics.blit(RenderPipelines.GUI_TEXTURED, DOT, cx - dot / 2, cy - dot / 2, 0.0F, 0.0F, dot, dot, 64, 64, 64, 64, ARGB.white(1f));
 	}
 }

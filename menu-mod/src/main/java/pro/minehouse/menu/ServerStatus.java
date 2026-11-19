@@ -23,6 +23,7 @@ public final class ServerStatus {
 	private static final ServerStatusPinger PINGER = new ServerStatusPinger();
 	private static ServerData data;
 	private static long lastPing;
+	private static volatile long answeredAt;
 
 	private ServerStatus() {
 	}
@@ -46,17 +47,25 @@ public final class ServerStatus {
 		d.setState(ServerData.State.PINGING);
 		POOL.submit(() -> {
 			try {
-				PINGER.pingServer(d, () -> {}, () -> d.setState(
-					d.protocol == SharedConstants.getCurrentVersion().protocolVersion()
-						? ServerData.State.SUCCESSFUL
-						: ServerData.State.INCOMPATIBLE
-				), EventLoopGroupHolder.remote(minecraft.options.useNativeTransport()));
+				PINGER.pingServer(d, () -> {}, () -> {
+					answeredAt = System.currentTimeMillis();
+					d.setState(
+						d.protocol == SharedConstants.getCurrentVersion().protocolVersion()
+							? ServerData.State.SUCCESSFUL
+							: ServerData.State.INCOMPATIBLE
+					);
+				}, EventLoopGroupHolder.remote(minecraft.options.useNativeTransport()));
 			} catch (UnknownHostException e) {
 				d.setState(ServerData.State.UNREACHABLE);
 			} catch (Exception e) {
 				d.setState(ServerData.State.UNREACHABLE);
 			}
 		});
+	}
+
+	/** When the server last answered a ping (wall clock), 0 if it hasn't since the game started. */
+	public static long answeredAt() {
+		return answeredAt;
 	}
 
 	public static void tick() {

@@ -50,6 +50,10 @@ public final class MinehouseRiftClient implements ClientModInitializer {
 		ClientPlayNetworking.registerGlobalReceiver(IntroPayload.TYPE, (payload, context) -> Intro.start());
 		ClientTickEvents.END_CLIENT_TICK.register(Intro::tick);
 		LevelRenderEvents.COLLECT_SUBMITS.register(Intro::submit);
+		// The end of Chapter 1: the kick goes to a main menu with only the black dot on it.
+		PayloadTypeRegistry.clientboundPlay().register(ChapterEndPayload.TYPE, ChapterEndPayload.CODEC);
+		ClientPlayNetworking.registerGlobalReceiver(ChapterEndPayload.TYPE, (payload, context) -> pro.minehouse.menu.ChapterEnd.mark());
+		ClientTickEvents.END_CLIENT_TICK.register(pro.minehouse.menu.ChapterEnd::tick);
 		ClientTickEvents.END_CLIENT_TICK.register(RiftRestart::tick);
 		ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> RiftRestart.joined());
 		HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("minehouse-rift", "cursor"), MinehouseRiftClient::cursor);
