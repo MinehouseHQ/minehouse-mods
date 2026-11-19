@@ -14,6 +14,7 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.ConfirmLinkScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.item.ItemStackRenderState;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
@@ -55,6 +56,10 @@ public final class WardrobeScreen extends Screen {
 
 
 	private static final int PAD = 8;
+	/** MineHouse Coins icon (16x16 pixel art), drawn at 8x8 next to prices and the balance. */
+	private static final Identifier COIN = Identifier.fromNamespaceAndPath("minehouse-menu", "textures/gui/coin.png");
+	private static final int COIN_SIZE = 8;
+	private static final int COIN_GAP = 2;
 	private static final int LEFT_W = 144;
 	private static final int RIGHT_W = 134;
 	private static final int TILE_W = 40;
@@ -257,6 +262,22 @@ public final class WardrobeScreen extends Screen {
 
 	private void centered(GuiGraphicsExtractor g, Component c, int cx, int y, int color) {
 		g.text(font, c, cx - font.width(c) / 2, y, color, false);
+	}
+
+	private static void coin(GuiGraphicsExtractor g, int x, int y) {
+		g.blit(RenderPipelines.GUI_TEXTURED, COIN, x, y, 0.0F, 0.0F, COIN_SIZE, COIN_SIZE, 16, 16, 16, 16, 0xFFFFFFFF);
+	}
+
+	/** Width of a price: the number and the coin icon after it. */
+	private int priceWidth(Component amount) {
+		return font.width(amount) + COIN_GAP + COIN_SIZE;
+	}
+
+	/** A price centred on cx: the number, then the coin icon. */
+	private void centeredPrice(GuiGraphicsExtractor g, Component amount, int cx, int y, int color) {
+		int x = cx - priceWidth(amount) / 2;
+		g.text(font, amount, x, y, color, false);
+		coin(g, x + font.width(amount) + COIN_GAP, y - 1);
 	}
 
 	// ------------------------------------------------------------------ shapes
@@ -512,19 +533,13 @@ public final class WardrobeScreen extends Screen {
 			float spin = hover || sel ? time * 4 : 35;
 			g.guiRenderState.addPicturesInPictureState(new WardrobePreview.State(null, 0, model(item.id()), spin,
 					x + 3, y + 2, x + TILE_W - 3, y + TILE_H - 12, 28, g.scissorStack.peek()));
-			String tag;
-			int color;
 			if (worn(item)) {
-				tag = "Надето";
-				color = ACCENT;
+				centered(g, txt("Надето"), x + TILE_W / 2, y + TILE_H - 10, ACCENT);
 			} else if (item.owned()) {
-				tag = "Есть";
-				color = GREEN;
+				centered(g, txt("Есть"), x + TILE_W / 2, y + TILE_H - 10, GREEN);
 			} else {
-				tag = item.price() + " MX";
-				color = MUTED;
+				centeredPrice(g, txt(String.valueOf(item.price())), x + TILE_W / 2, y + TILE_H - 10, MUTED);
 			}
-			centered(g, txt(tag), x + TILE_W / 2, y + TILE_H - 10, color);
 			if (hover) {
 				g.setTooltipForNextFrame(font, txt(item.name()), mouseX, mouseY);
 			}
@@ -554,7 +569,12 @@ public final class WardrobeScreen extends Screen {
 		if (item.owned()) {
 			return "Надеть";
 		}
-		return item.price() + " MX";
+		return String.valueOf(item.price());
+	}
+
+	/** The action buys the item: its label is a price and gets the coin icon. */
+	private static boolean buys(WardrobeNet.Item item) {
+		return item != null && !item.owned();
 	}
 
 	private boolean actionEnabled() {
@@ -569,11 +589,16 @@ public final class WardrobeScreen extends Screen {
 		int y = right.y0 + PAD;
 		text(g, txt(slot.title), x, y + 2, MUTED);
 		if (item != null) {
-			String badge = worn(item) ? "Надето" : (item.owned() ? "Есть" : item.price() + " MX");
-			int bw = font.width(txt(badge)) + 10;
+			boolean price = buys(item) && !worn(item);
+			Component badge = txt(worn(item) ? "Надето" : (item.owned() ? "Есть" : String.valueOf(item.price())));
+			int bw = (price ? priceWidth(badge) : font.width(badge)) + 10;
 			Box b = new Box(right.x1 - PAD - bw, y, right.x1 - PAD, y + 12);
 			card(g, b, 0x00000000, worn(item) ? ACCENT : BORDER);
-			centered(g, txt(badge), (b.x0 + b.x1) / 2, y + 2, worn(item) ? ACCENT : (item.owned() ? GREEN : FG));
+			if (price) {
+				centeredPrice(g, badge, (b.x0 + b.x1) / 2, y + 2, FG);
+			} else {
+				centered(g, badge, (b.x0 + b.x1) / 2, y + 2, worn(item) ? ACCENT : (item.owned() ? GREEN : FG));
+			}
 		}
 		y += 16;
 		swatchY = -1;
@@ -625,7 +650,11 @@ public final class WardrobeScreen extends Screen {
 			centered(g, txt(actionLabel(item)), (act.x0 + act.x1) / 2, act.y0 + 5, RED);
 		} else {
 			card(g, act, on ? (hover ? PRIMARY_HOVER : PRIMARY) : 0xFF27272A, 0);
-			centered(g, txt(actionLabel(item)), (act.x0 + act.x1) / 2, act.y0 + 5, on ? ON_PRIMARY : DISABLED);
+			if (buys(item)) {
+				centeredPrice(g, txt(actionLabel(item)), (act.x0 + act.x1) / 2, act.y0 + 5, on ? ON_PRIMARY : DISABLED);
+			} else {
+				centered(g, txt(actionLabel(item)), (act.x0 + act.x1) / 2, act.y0 + 5, on ? ON_PRIMARY : DISABLED);
+			}
 		}
 		Box off = takeOffButton();
 		boolean offOn = !state.worn().isEmpty();
@@ -635,7 +664,9 @@ public final class WardrobeScreen extends Screen {
 		// The balance, under a rule.
 		g.fill(right.x0 + 1, buttonsY + 24, right.x1 - 1, buttonsY + 25, BORDER);
 		int by = buttonsY + 29;
-		text(g, bold(state.coins() + " MX"), x, by + 2, FG);
+		Component balance = bold(String.valueOf(state.coins()));
+		text(g, balance, x, by + 2, FG);
+		coin(g, x + font.width(balance) + COIN_GAP, by + 1);
 		Component top = txt("Пополнить");
 		int tw = font.width(top);
 		boolean topHover = topUpButton().over(mouseX, mouseY);
