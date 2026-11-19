@@ -87,6 +87,9 @@ public final class ChapterEnd {
 		if (mc.level == null && over(ServerStatus.answeredAt(), since)) {
 			MinehouseMenu.LOG.info("MineHouse answers again: the next chapter is here");
 			clear();
+			if (mc.gui.screen() instanceof TitleScreen) {
+				mc.gui.setScreen(new TitleScreen());
+			}
 		}
 	}
 

@@ -6,6 +6,7 @@ import java.util.List;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.LogoRenderer;
+import net.minecraft.client.gui.components.SplashRenderer;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.screens.ConfirmLinkScreen;
@@ -54,6 +55,9 @@ public abstract class TitleScreenMixin extends Screen {
 	@Shadow
 	private boolean fading;
 
+	@Shadow
+	private SplashRenderer splash;
+
 	protected TitleScreenMixin(Component title) {
 		super(title);
 	}
@@ -63,12 +67,38 @@ public abstract class TitleScreenMixin extends Screen {
 		at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/components/LogoRenderer;extractRenderState(Lnet/minecraft/client/gui/GuiGraphicsExtractor;IF)V")
 	)
 	private void minehouse$logo(LogoRenderer renderer, GuiGraphicsExtractor graphics, int width, float alpha) {
+		if (this.minehouse$dotY >= 0) {
+			minehouse$dot(graphics);
+			return;
+		}
 		// 512x128 texture drawn at 256x64 GUI pixels so it stays sharp on GUI scale 2.
 		graphics.blit(RenderPipelines.GUI_TEXTURED, MINEHOUSE_LOGO, width / 2 - 128, 22, 0.0F, 0.0F, 256, 64, 512, 128, 512, 128, ARGB.white(alpha));
 	}
 
 	@Inject(method = "init", at = @At("TAIL"))
 	private void minehouse$layout(CallbackInfo ci) {
+		if (ChapterEnd.active()) {
+			// Chapter 1 is over: the menu is black with the dot the world fell into instead of the logo.
+			// You can still play, just not on MineHouse: no join button, no links, no Realms.
+			this.minehouse$play = null;
+			this.minehouse$dotY = 54;
+			this.splash = null;
+			Button singleplayer = minehouse$find("menu.singleplayer");
+			Button multiplayer = minehouse$find("menu.multiplayer");
+			Button realms = minehouse$find("menu.online");
+			if (singleplayer != null && multiplayer != null && realms != null) {
+				int left = this.width / 2 - 100;
+				int top = singleplayer.getY();
+				singleplayer.setPosition(left, top);
+				singleplayer.setWidth(98);
+				multiplayer.setPosition(left + 102, top);
+				multiplayer.setWidth(98);
+				this.removeWidget(realms);
+			}
+			ServerStatus.refresh(this.minecraft);
+			return;
+		}
+		this.minehouse$dotY = -1;
 		Button singleplayer = minehouse$find("menu.singleplayer");
 		Button multiplayer = minehouse$find("menu.multiplayer");
 		Button realms = minehouse$find("menu.online");
@@ -79,20 +109,13 @@ public abstract class TitleScreenMixin extends Screen {
 		int top = singleplayer.getY();
 		int realmsY = realms.getY();
 
-		boolean ended = ChapterEnd.active();
 		this.minehouse$play = Button.builder(
 				ServerStatus.playLabel(),
 				b -> ConnectScreen.startConnecting(this, this.minecraft, ServerAddress.parseString(MenuConfig.serverAddress), ServerStatus.data(), false, null)
 			)
 			.bounds(left, top, 200, 20)
 			.build();
-		if (ended) {
-			// Chapter 1 is over: nowhere to go, only the dot the world fell into (drawn over this row).
-			this.minehouse$play = null;
-			this.minehouse$dotY = top + 10;
-		} else {
-			this.addRenderableWidget(this.minehouse$play);
-		}
+		this.addRenderableWidget(this.minehouse$play);
 
 		int row2 = top + 24;
 		singleplayer.setPosition(left, row2);
@@ -147,12 +170,17 @@ public abstract class TitleScreenMixin extends Screen {
 		SelfTest.onTitleTick(this.minecraft, this.minehouse$play != null || this.minehouse$dotY >= 0);
 	}
 
+	@Inject(method = "extractBackground", at = @At("HEAD"), cancellable = true)
+	private void minehouse$blackBackground(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float a, CallbackInfo ci) {
+		if (this.minehouse$dotY >= 0) {
+			graphics.fill(0, 0, this.width, this.height, 0xFF000000);
+			ci.cancel();
+		}
+	}
+
 	@Inject(method = "extractRenderState", at = @At("TAIL"))
 	private void minehouse$status(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float a, CallbackInfo ci) {
-		if (this.minehouse$dotY >= 0 && ChapterEnd.active()) {
-			minehouse$dot(graphics);
-		}
-		if (this.fading) {
+		if (this.fading || this.minehouse$dotY >= 0) {
 			return;
 		}
 		String version = PackUpdater.localVersion().isEmpty() ? MenuConfig.packVersion : PackUpdater.localVersion();
@@ -171,16 +199,16 @@ public abstract class TitleScreenMixin extends Screen {
 		}
 	}
 
-	/** The black dot: a speck of black with a pale blue rim, its glow slowly breathing. */
+	/** The black dot in the middle of the screen: a speck of black with a pale blue rim, its glow slowly breathing. */
 	private void minehouse$dot(GuiGraphicsExtractor graphics) {
 		int cx = this.width / 2;
 		int cy = this.minehouse$dotY;
 		float t = ChapterEnd.seconds();
 		float breath = 0.55f + 0.45f * (float) Math.sin(t * 1.3);
-		int glow = 40;
+		int glow = 56;
 		graphics.blit(RenderPipelines.GUI_TEXTURED, DOT_GLOW, cx - glow / 2, cy - glow / 2, 0.0F, 0.0F, glow, glow, 128, 128, 128, 128,
 			ARGB.white(breath));
-		int dot = 16;
+		int dot = 20;
 		graphics.blit(RenderPipelines.GUI_TEXTURED, DOT, cx - dot / 2, cy - dot / 2, 0.0F, 0.0F, dot, dot, 64, 64, 64, 64, ARGB.white(1f));
 	}
 }
