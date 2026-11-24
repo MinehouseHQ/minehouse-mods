@@ -63,7 +63,7 @@ test {
 }
 
 // Reproducible jars: no file timestamps, fixed order. The same sources give a byte-identical jar,
-// so anyone can rebuild it from P5ina/minehouse-mods and compare SHA-256 with the jar in the modpack.
+// so anyone can rebuild it from MinehouseHQ/minehouse-mods and compare SHA-256 with the jar in the modpack.
 tasks.withType(AbstractArchiveTask).configureEach {
 	preserveFileTimestamps = false
 	reproducibleFileOrder = true
