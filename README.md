@@ -14,7 +14,7 @@
 | [`menu-mod`](menu-mod) | MineHouse (`minehouse-client.jar`) | да | Единственный наш клиентский мод. Главное меню: кнопка «Играть на MineHouse», онлайн сервера, ссылки на сайт и Discord. Автообновление сборки: сверяет файлы с `https://www.minehouse.pro/modpack/manifest.json` (по sha512), докачивает изменённые и после выхода из игры подменяет их в папке сборки, других адресов не трогает. Гардероб и косметика, настоящая цена в окне наковальни вместо «Слишком дорого!», границы зон спавна линиями и стенами, редактор шоу для админов (у обычных игроков ничего не делает). С сервером говорит только пакетами этих функций. До сборки 1.14.0 это были четыре отдельных мода: Menu, Anvil Client, Events Editor и Zones Client. |
 | [`trailer-mod`](trailer-mod) | MineHouse Trailer | нет | Снимает трейлер сервера в одиночном мире. В сборку не входит. |
 
-Лаунчер MineHouse открыт отдельно: [minehouse/minehouse-launcher](https://github.com/minehouse/minehouse-launcher).
+Лаунчер MineHouse открыт отдельно: [MinehouseHQ/minehouse-launcher](https://github.com/MinehouseHQ/minehouse-launcher).
 Серверные моды работают только на сервере, на компьютер игрока они не попадают.
 
 ## Как проверить свой jar
