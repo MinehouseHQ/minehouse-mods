@@ -54,6 +54,17 @@ public final class UiNet {
 		}
 	}
 
+	/** Registered only to tell the server this client draws the player wheel (scene "wheel"). */
+	public record WheelFeature() implements CustomPacketPayload {
+		static final Type<WheelFeature> TYPE = new Type<>(Identifier.fromNamespaceAndPath(NS, "wheel"));
+		static final StreamCodec<FriendlyByteBuf, WheelFeature> CODEC = StreamCodec.unit(new WheelFeature());
+
+		@Override
+		public Type<WheelFeature> type() {
+			return TYPE;
+		}
+	}
+
 	private UiNet() {
 	}
 
@@ -61,6 +72,9 @@ public final class UiNet {
 		PayloadTypeRegistry.clientboundPlay().register(WindowPayload.TYPE, WindowPayload.CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(ClosePayload.TYPE, ClosePayload.CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(ActionPayload.TYPE, ActionPayload.CODEC);
+		PayloadTypeRegistry.clientboundPlay().register(WheelFeature.TYPE, WheelFeature.CODEC);
+		ClientPlayNetworking.registerGlobalReceiver(WheelFeature.TYPE, (payload, context) -> {
+		});
 		ClientPlayNetworking.registerGlobalReceiver(WindowPayload.TYPE, (payload, context) -> receive(context.client(), payload.json()));
 		ClientPlayNetworking.registerGlobalReceiver(ClosePayload.TYPE, (payload, context) -> {
 			if (context.client().gui.screen() instanceof UiScreen screen && screen.id().equals(payload.id())) screen.closeByServer();

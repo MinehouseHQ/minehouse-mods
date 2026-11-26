@@ -268,6 +268,9 @@ public final class UiTree {
 		int cols = Math.max(1, n.num("cols", 1));
 		int cw = n.num("cw", 16);
 		int ch = n.num("ch", 16);
+		// Cells narrower than asked when the grid doesn't fit (a narrow screen): never past its edges.
+		int room = n.w - n.padX * 2 - (cols - 1) * n.gap;
+		if (cols * cw > room) cw = Math.max(16, room / cols);
 		int rows = (n.children.size() + cols - 1) / cols;
 		int min = n.num("rows", 0);
 		int max = Math.max(min, n.num("maxRows", min));

@@ -83,6 +83,19 @@ public final class UiScreen extends Screen implements Fitting {
 	private int[] markerXY = new int[0];
 	private int barX0, barY0, barX1, barY1;
 
+	/** Scene "wheel": the player wheel instead of panels. */
+	private UiWheel wheel;
+	private int wheelHover = -1;
+	private float[] wheelGrow = new float[0];
+	private final long openedAt = System.currentTimeMillis();
+	/** The right button went down while this screen was up, or was already held when it opened (Shift + right click). */
+	private boolean rightHeld = true;
+	private boolean wheelChosen;
+	/** Shift closes the wheel only once it was up: it is often still held from Shift + right click. */
+	private boolean shiftArmed;
+	/** Self-test: where the mouse is taken to be. */
+	int[] testMouse;
+
 	UiScreen(JsonObject json) {
 		super(Component.literal(UiTree.str(json, "title", "")));
 		read(json);
@@ -126,6 +139,8 @@ public final class UiScreen extends Screen implements Fitting {
 				hints.add(new String[] {e.getAsJsonArray().get(0).getAsString(), e.getAsJsonArray().get(1).getAsString()});
 			}
 		}
+		wheel = "wheel".equals(scene) && json.has("wheel") && json.get("wheel").isJsonObject() ? new UiWheel(json.getAsJsonObject("wheel")) : null;
+		if (wheel != null && wheelGrow.length != wheel.slots.size()) wheelGrow = new float[wheel.slots.size()];
 		JsonObject preview = json.has("preview") && json.get("preview").isJsonObject() ? json.getAsJsonObject("preview") : null;
 		if (preview != null) {
 			if (preview.has("wear") && preview.get("wear").isJsonObject()) {
@@ -201,6 +216,7 @@ public final class UiScreen extends Screen implements Fitting {
 	@Override
 	public void extractBackground(GuiGraphicsExtractor g, int mouseX, int mouseY, float a) {
 		if ("dim".equals(scene)) super.extractBackground(g, mouseX, mouseY, a);
+		else if (wheel != null) g.fill(0, 0, width, height, 0x50000000);
 	}
 
 	// ------------------------------------------------------------------ layout
@@ -259,9 +275,10 @@ public final class UiScreen extends Screen implements Fitting {
 		int stackRight = EDGE;
 		int centerW = 0;
 		for (Panel p : panels) {
-			if (p.at().equals("center")) centerW += p.width() + (centerW > 0 ? EDGE : 0);
+			if (p.at().equals("center")) centerW += Math.min(p.width(), width - EDGE * 2) + (centerW > 0 ? EDGE : 0);
 		}
-		int cx = center[0] - centerW / 2;
+		// On a narrow screen (big GUI scale) the panels start at the edge, not off it.
+		int cx = Math.max(EDGE, center[0] - centerW / 2);
 		for (Panel p : panels) {
 			int w = Math.min(p.width(), width - EDGE * 2);
 			int h = tree.layout(p.node(), 0, 0, w);
@@ -364,6 +381,10 @@ public final class UiScreen extends Screen implements Fitting {
 	@Override
 	public void extractRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float a) {
 		super.extractRenderState(g, mouseX, mouseY, a);
+		if (wheel != null) {
+			drawWheel(g, mouseX, mouseY);
+			return;
+		}
 		current = layout(a);
 		if (fittingScene()) drawMarkers(g, mouseX, mouseY);
 		float time = (minecraft.level != null ? minecraft.level.getGameTime() : System.currentTimeMillis() / 50f) + a;
@@ -440,6 +461,7 @@ public final class UiScreen extends Screen implements Fitting {
 					draw(g, child, mx, my, time, hot, c);
 				}
 				g.disableScissor();
+				if (n.maxScroll > 0) scrollbar(g, n, mx, my);
 				return;
 			}
 			case "item" -> {
@@ -458,6 +480,53 @@ public final class UiScreen extends Screen implements Fitting {
 			}
 		}
 		for (Node c : n.children) draw(g, c, mx, my, time, hot, clip);
+	}
+
+	/** Track of a scrolling grid: just right of it, in the panel's padding. */
+	private static int[] track(Node grid) {
+		int x = grid.x + grid.w + 3;
+		return new int[] {x, grid.y, x + 3, grid.y + grid.h};
+	}
+
+	/** The thumb's top and bottom on the track. */
+	private int[] thumb(Node grid) {
+		int[] t = track(grid);
+		int h = t[3] - t[1];
+		int th = Math.max(12, h * h / (h + grid.maxScroll));
+		double s = scrolls.getOrDefault(key(grid), 0.0) / grid.maxScroll;
+		int y = t[1] + (int) Math.round((h - th) * s);
+		return new int[] {y, y + th};
+	}
+
+	/** Shows that the list goes on: a track with a thumb, which can be dragged. */
+	private void scrollbar(GuiGraphicsExtractor g, Node grid, int mx, int my) {
+		int[] t = track(grid);
+		int[] th = thumb(grid);
+		boolean hot = (scrollDrag != null && key(scrollDrag).equals(key(grid))) || (mx >= t[0] - 2 && mx < t[2] + 2 && my >= t[1] && my < t[3]);
+		g.fill(t[0], t[1] + 1, t[2], t[3] - 1, Theme.BORDER);
+		g.fill(t[0], th[0] + 1, t[2], th[1] - 1, hot ? Theme.FG : Theme.FAINT);
+		g.fill(t[0] + 1, th[0], t[2] - 1, th[1], hot ? Theme.FG : Theme.FAINT);
+	}
+
+	private Node scrollDrag;
+	private double scrollDragOffset;
+
+	private Node trackAt(double mx, double my) {
+		for (Node grid : grids.keySet()) {
+			if (grid.maxScroll <= 0) continue;
+			int[] t = track(grid);
+			if (mx >= t[0] - 2 && mx < t[2] + 2 && my >= t[1] && my < t[3]) return grid;
+		}
+		return null;
+	}
+
+	private void dragScroll(Node grid, double my) {
+		int[] t = track(grid);
+		int[] th = thumb(grid);
+		int room = (t[3] - t[1]) - (th[1] - th[0]);
+		if (room <= 0) return;
+		double s = (my - scrollDragOffset - t[1]) / room;
+		scrolls.put(key(grid), Mth.clamp(s, 0, 1) * grid.maxScroll);
 	}
 
 	private static boolean inside(int[] clip, double mx, double my) {
@@ -718,6 +787,79 @@ public final class UiScreen extends Screen implements Fitting {
 		}
 	}
 
+	// ------------------------------------------------------------------ wheel
+
+	/** How much the wheel is scaled down to fit a small screen. */
+	private float wheelScale() {
+		int need = 2 * (UiWheel.RADIUS + UiWheel.TILE) + 90;
+		return Math.min(1.0F, (height - 40) / (float) need);
+	}
+
+	private int[] wheelCenter() {
+		return new int[] {width / 2, (int) (height / 2 - 18 * wheelScale())};
+	}
+
+	private void drawWheel(GuiGraphicsExtractor g, int mx, int my) {
+		if (testMouse != null) {
+			mx = testMouse[0];
+			my = testMouse[1];
+		}
+		float k = wheelScale();
+		int[] c = wheelCenter();
+		int hover = wheel.pick(c[0], c[1], mx, my);
+		if (hover != wheelHover) {
+			wheelHover = hover;
+			if (hover >= 0) minecraft.getSoundManager().play(net.minecraft.client.resources.sounds.SimpleSoundInstance.forUI(
+					net.minecraft.sounds.SoundEvents.UI_BUTTON_CLICK, 1.8F));
+		}
+		float open = UiWheel.clamp01((System.currentTimeMillis() - openedAt) / 160F);
+		var pose = g.pose();
+		pose.pushMatrix();
+		pose.translate(c[0], c[1]);
+		pose.scale(k, k);
+		pose.translate(-c[0], -c[1]);
+		wheel.draw(this, g, font, c[0], c[1], open, hover, wheelGrow);
+		pose.popMatrix();
+		drawHints(g);
+	}
+
+	ItemStack wheelItem(UiWheel.Slot slot) {
+		return item(slot.item(), slot.model());
+	}
+
+	@Override
+	public void tick() {
+		super.tick();
+		if (!com.mojang.blaze3d.platform.InputConstants.isKeyDown(com.mojang.blaze3d.platform.InputConstants.KEY_LSHIFT)
+				&& !com.mojang.blaze3d.platform.InputConstants.isKeyDown(com.mojang.blaze3d.platform.InputConstants.KEY_RSHIFT)) shiftArmed = true;
+		for (int i = 0; i < wheelGrow.length; i++) wheelGrow[i] = UiWheel.approach(wheelGrow[i], i == wheelHover ? 1 : 0, 0.5F);
+	}
+
+	private boolean chooseWheel(int index) {
+		if (wheel == null || index < 0 || index >= wheel.slots.size() || wheelChosen) return false;
+		JsonObject click = wheel.slots.get(index).click();
+		if (click == null) return false;
+		wheelChosen = true;
+		send(click);
+		return true;
+	}
+
+	@Override
+	public boolean keyPressed(net.minecraft.client.input.KeyEvent event) {
+		if (wheel != null) {
+			int key = event.key();
+			if (key >= com.mojang.blaze3d.platform.InputConstants.KEY_1 && key <= com.mojang.blaze3d.platform.InputConstants.KEY_9) {
+				return chooseWheel(key - com.mojang.blaze3d.platform.InputConstants.KEY_1) || true;
+			}
+			// Shift closes it, as it does the wheel in the world.
+			if (key == com.mojang.blaze3d.platform.InputConstants.KEY_LSHIFT || key == com.mojang.blaze3d.platform.InputConstants.KEY_RSHIFT) {
+				if (shiftArmed) onClose();
+				return true;
+			}
+		}
+		return super.keyPressed(event);
+	}
+
 	// ------------------------------------------------------------------ input
 
 	/** The deepest node under the mouse that passes the test (grids only where they are visible). */
@@ -777,6 +919,17 @@ public final class UiScreen extends Screen implements Fitting {
 	public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
 		double mx = event.x();
 		double my = event.y();
+		if (wheel != null) {
+			if (event.button() == com.mojang.blaze3d.platform.InputConstants.MOUSE_BUTTON_RIGHT) {
+				rightHeld = true;
+				return true;
+			}
+			if (event.button() == com.mojang.blaze3d.platform.InputConstants.MOUSE_BUTTON_LEFT) {
+				int[] c = wheelCenter();
+				chooseWheel(wheel.pick(c[0], c[1], mx, my));
+				return true;
+			}
+		}
 		if (event.button() != com.mojang.blaze3d.platform.InputConstants.MOUSE_BUTTON_LEFT) {
 			return super.mouseClicked(event, doubleClick);
 		}
@@ -787,6 +940,15 @@ public final class UiScreen extends Screen implements Fitting {
 					return true;
 				}
 			}
+		}
+		Node bar = trackAt(mx, my);
+		if (bar != null) {
+			int[] th = thumb(bar);
+			// On the thumb: drag it from where it was taken; on the track: jump there.
+			scrollDragOffset = my >= th[0] && my < th[1] ? my - th[0] : (th[1] - th[0]) / 2.0;
+			scrollDrag = bar;
+			dragScroll(bar, my);
+			return true;
 		}
 		Node hit = find(mx, my, n -> n.click() != null || n.dbl() != null);
 		if (hit != null) {
@@ -804,6 +966,17 @@ public final class UiScreen extends Screen implements Fitting {
 
 	@Override
 	public boolean mouseDragged(MouseButtonEvent event, double dx, double dy) {
+		if (scrollDrag != null) {
+			// The layout is rebuilt every frame: find the same grid again by its id.
+			for (Node grid : grids.keySet()) {
+				if (key(grid).equals(key(scrollDrag))) {
+					scrollDrag = grid;
+					dragScroll(grid, event.y());
+					return true;
+				}
+			}
+			return true;
+		}
 		if (dragging) {
 			previewYaw = Mth.wrapDegrees(previewYaw - (float) dx * 2.5f);
 			return true;
@@ -813,7 +986,17 @@ public final class UiScreen extends Screen implements Fitting {
 
 	@Override
 	public boolean mouseReleased(MouseButtonEvent event) {
+		// Hold the right button, point, let go. The click that opened the wheel lets go at once: that keeps it open.
+		if (wheel != null && event.button() == com.mojang.blaze3d.platform.InputConstants.MOUSE_BUTTON_RIGHT && rightHeld) {
+			rightHeld = false;
+			if (System.currentTimeMillis() - openedAt > 250) {
+				int[] c = wheelCenter();
+				chooseWheel(wheel.pick(c[0], c[1], event.x(), event.y()));
+			}
+			return true;
+		}
 		dragging = false;
+		scrollDrag = null;
 		return super.mouseReleased(event);
 	}
 

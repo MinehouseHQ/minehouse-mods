@@ -13,7 +13,7 @@ import pro.minehouse.menu.MinehouseMenu;
  * CI check (xvfb-run ./gradlew runSelftestClient -Pselftest=ui): feeds the client a made-up server
  * window (selftest/ui-window.json, the wardrobe's layout with vanilla models), screenshots it, sends
  * an update and a close, then the server and player menus (selftest/ui-menu.json, ui-player.json,
- * screenshots ui-menu.png, ui-player.png), and prints MINEHOUSE_UI_OK if the windows held together.
+ * screenshots ui-menu.png, ui-player.png), the player wheel (ui-wheel.png), and prints MINEHOUSE_UI_OK if the windows held together.
  */
 final class UiSelfTest {
 	private static int ticks;
@@ -57,6 +57,14 @@ final class UiSelfTest {
 					Screenshot.grab(client.gameDirectory, "ui-player.png", client.gameRenderer.mainRenderTarget(), 1,
 							msg -> MinehouseMenu.LOG.info("Screenshot: {}", msg.getString()));
 				} else if (ticks == 150) {
+					// The player wheel (MineHouse Guides WheelUi), with the mouse on the right-hand tile.
+					UiNet.receive(client, resource("ui-wheel.json"));
+					check(client.gui.screen() instanceof UiScreen s && s.id().equals("player_wheel"), "the wheel opens");
+					if (client.gui.screen() instanceof UiScreen s) s.testMouse = new int[] {s.width / 2 + 60, s.height / 2 - 18};
+				} else if (ticks == 180) {
+					Screenshot.grab(client.gameDirectory, "ui-wheel.png", client.gameRenderer.mainRenderTarget(), 1,
+							msg -> MinehouseMenu.LOG.info("Screenshot: {}", msg.getString()));
+				} else if (ticks == 190) {
 					MinehouseMenu.LOG.info(problem == null ? "MINEHOUSE_UI_OK" : "MINEHOUSE_UI_FAIL: " + problem);
 					client.stop();
 				}
