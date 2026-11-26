@@ -30,7 +30,7 @@ import pro.minehouse.wardrobe.IskrikTimeline;
  */
 public final class WardrobeNet {
 	static final String NS = "minehouse-cosmetics";
-	private static final List<String> SLOTS = List.of("hat", "backpack", "belt", "armor", "pet");
+	private static final List<String> SLOTS = List.of("hat", "shoulder", "backpack", "belt", "armor", "pet");
 
 	/** Only views owned by the fitting session may be closed by its end packet. */
 	interface FittingView {

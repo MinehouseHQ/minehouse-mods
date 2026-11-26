@@ -9,12 +9,15 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import pro.minehouse.menu.wardrobe.WardrobeSelf;
 
-/** Hides the server's backpack display; the menu mod draws the backpack on the body instead. */
+/**
+ * Hides the server's backpack display; the menu mod draws the backpack on the body instead.
+ * In the wardrobe's fitting scene also hides everyone else, so only you are in the picture.
+ */
 @Mixin(EntityRenderDispatcher.class)
 public abstract class EntityRenderDispatcherMixin {
 	@Inject(method = "shouldRender", at = @At("HEAD"), cancellable = true)
 	private void minehouse$hideBackpack(Entity entity, Frustum frustum, double x, double y, double z, float partialTick, CallbackInfoReturnable<Boolean> cir) {
-		if (WardrobeSelf.isCosmeticDisplay(entity)) {
+		if (WardrobeSelf.isCosmeticDisplay(entity) || WardrobeSelf.hiddenInFitting(entity)) {
 			cir.setReturnValue(false);
 		}
 	}

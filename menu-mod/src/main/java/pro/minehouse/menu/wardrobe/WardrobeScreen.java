@@ -77,10 +77,12 @@ public final class WardrobeScreen extends Screen implements WardrobeNet.FittingV
 
 	/**
 	 * The tabs and the server slot their cosmetics are worn in. Backpacks, wings and capes share the
-	 * "backpack" slot and one tab, «Тело» (one covering thing at a time, see Selection.pick).
+	 * "backpack" slot and one tab, «Тело» (one covering thing at a time, see Selection.pick);
+	 * shoulder companions have their own slot and tab, «Плечо» (Cosmetics 0.27.0).
 	 */
 	enum Slot {
 		HAT(Tr.s("Голова", "Head"), "hat", () -> Items.LEATHER_HELMET),
+		SHOULDER(Tr.s("Плечо", "Shoulder"), "shoulder", () -> Items.FEATHER),
 		BACKPACK(Tr.s("Тело", "Body"), "backpack", () -> Items.BUNDLE),
 		BELT(Tr.s("Пояс", "Belt"), "belt", () -> Items.LEATHER_LEGGINGS),
 		ARMOR(Tr.s("Броня", "Armor"), "armor", () -> Items.IRON_CHESTPLATE),

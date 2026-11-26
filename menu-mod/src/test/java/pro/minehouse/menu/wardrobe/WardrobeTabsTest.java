@@ -18,13 +18,13 @@ class WardrobeTabsTest {
 		var items = List.of(cosmetic("armor_gold_curb", "armor", null), cosmetic("karat", "hat", null),
 				cosmetic("armor_diamond_curb", "armor", null), cosmetic("shorokh", "pet", null),
 				cosmetic("armor_netherite_curb", "armor", null), cosmetic("angel_wings", "backpack", "wings"),
-				cosmetic("armor_iron_curb", "armor", null), cosmetic("shoulder_cat_mokko", "backpack", null),
+				cosmetic("armor_iron_curb", "armor", null), cosmetic("shoulder_cat_mokko", "shoulder", null),
 				cosmetic("armor_leather_curb", "armor", null), cosmetic("spider_legs", "belt", null));
 		var expected = Map.of(Slot.ARMOR, List.of("armor_gold_curb", "armor_diamond_curb", "armor_netherite_curb", "armor_iron_curb", "armor_leather_curb"),
 				Slot.PET, List.of("shorokh"), Slot.HAT, List.of("karat"),
-				Slot.BACKPACK, List.of("angel_wings", "shoulder_cat_mokko"), Slot.BELT, List.of("spider_legs"));
+				Slot.SHOULDER, List.of("shoulder_cat_mokko"), Slot.BACKPACK, List.of("angel_wings"), Slot.BELT, List.of("spider_legs"));
 		Slot active = Slot.HAT;
-		for (Slot target : List.of(Slot.ARMOR, Slot.PET, Slot.ARMOR, Slot.BACKPACK, Slot.BELT, Slot.HAT)) {
+		for (Slot target : List.of(Slot.ARMOR, Slot.PET, Slot.ARMOR, Slot.SHOULDER, Slot.BACKPACK, Slot.BELT, Slot.HAT)) {
 			var row = new WardrobeScreen.TabRow(8, 8, active, 30); // icon-only minimum-width row
 			var box = row.tab(target);
 			active = row.hit(box.x0() + box.w() / 2, (box.y0() + box.y1()) / 2);
@@ -36,7 +36,7 @@ class WardrobeTabsTest {
 	@Test void armorVisibilityControlOnlyAppearsOnItsOwnTab() {
 		for (var visibility : ArmorVisibility.values()) {
 			var active = Slot.HAT;
-			for (var target : List.of(Slot.ARMOR, Slot.PET, Slot.ARMOR, Slot.BACKPACK, Slot.BELT, Slot.HAT)) {
+			for (var target : List.of(Slot.ARMOR, Slot.PET, Slot.ARMOR, Slot.SHOULDER, Slot.BACKPACK, Slot.BELT, Slot.HAT)) {
 				var row = new WardrobeScreen.TabRow(8, 8, active, 30);
 				var box = row.tab(target);
 				active = row.hit(box.x0() + box.w() / 2, (box.y0() + box.y1()) / 2);
@@ -51,7 +51,7 @@ class WardrobeTabsTest {
 		var pet = cosmetic("shorokh", "pet", null);
 		var gold = cosmetic("armor_gold_curb", "armor", null);
 		var iron = cosmetic("armor_iron_curb", "armor", null);
-		var worn = Map.of("armor", iron.id(), "backpack", "shoulder_cat_mokko");
+		var worn = Map.of("armor", iron.id(), "shoulder", "shoulder_cat_mokko");
 		var state = new WardrobeNet.State(0, "", List.of(pet, gold, iron), worn, ArmorVisibility.UNAVAILABLE);
 		var selection = new WardrobeScreen.Selection();
 		selection.pick(state, pet, true);
@@ -74,12 +74,13 @@ class WardrobeTabsTest {
 		return Arrays.stream(WardrobeScreen.Slot.values()).filter(s -> s.lists(item)).map(s -> s.title).toList();
 	}
 
-	@Test void groundPetHasExactlyOneTabAndShoulderItemsStayOnBack() {
+	@Test void groundPetHasExactlyOneTabAndShoulderItemsHaveTheirOwn() {
 		assertEquals(List.of("Питомцы"), titles("pet", null));
 		assertEquals(List.of("Тело"), titles("backpack", null));
 		assertEquals(List.of("Тело"), titles("backpack", "wings"));
 		assertEquals(List.of("Тело"), titles("backpack", "cape"));
 		assertEquals(List.of("Голова"), titles("hat", null));
+		assertEquals(List.of("Плечо"), titles("shoulder", null));
 		assertEquals(List.of("Пояс"), titles("belt", null));
 		assertTrue(titles("future-slot", null).isEmpty());
 	}

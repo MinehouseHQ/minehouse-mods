@@ -1,5 +1,7 @@
 package pro.minehouse.menu.wardrobe;
 
+import org.joml.Quaternionf;
+
 import java.util.List;
 import java.util.Map;
 import java.util.ArrayList;
@@ -12,6 +14,7 @@ import com.mojang.math.Axis;
 import net.fabricmc.fabric.api.client.rendering.v1.LivingEntityRenderLayerRegistrationCallback;
 import net.fabricmc.fabric.api.client.rendering.v1.RenderStateDataKey;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.model.player.PlayerModel;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.entity.RenderLayerParent;
@@ -90,6 +93,26 @@ public final class WardrobeSelf {
 		return isCosmeticStack(passengerStack(display)) || cached != null && isCosmeticStack(cached.itemStack());
 	}
 
+	/**
+	 * While the wardrobe's fitting scene is open: other players, whatever rides them, and loose
+	 * cosmetic displays (their pets) are not drawn. Your own passengers and your fitting pet
+	 * (custom_model_data string 2 "fitting", Cosmetics 0.27.0+) stay.
+	 */
+	public static boolean hiddenInFitting(Entity entity) {
+		Minecraft mc = Minecraft.getInstance();
+		if (mc.player == null || entity == mc.player || !(mc.gui.screen() instanceof Fitting f) || !f.fittingScene()) return false;
+		Entity root = entity.getRootVehicle();
+		if (root == mc.player) return false;
+		if (root instanceof net.minecraft.world.entity.player.Player) return true;
+		if (entity instanceof Display.ItemDisplay display && entity.getVehicle() == null) {
+			ItemStack stack = passengerStack(display);
+			if (!isCosmeticStack(stack)) return false;
+			CustomModelData cmd = stack.get(DataComponents.CUSTOM_MODEL_DATA);
+			return cmd == null || !"fitting".equals(cmd.getString(2));
+		}
+		return false;
+	}
+
 	private static boolean isCosmeticStack(ItemStack stack) {
 		Identifier model = stack.get(DataComponents.ITEM_MODEL);
 		return model != null && (WardrobeNet.NS.equals(model.getNamespace()) || KARAT_DISPLAY.equals(model));
@@ -166,6 +189,11 @@ public final class WardrobeSelf {
 			CosmeticMotion.Pick layerPick = CosmeticMotion.pick(net.item(id), idleOnly);
 			ItemStack stack = WardrobeScreen.stack(id, layerPick == null ? -1 : layerPick.a());
 			addModel(state, KaratMount.onShoulder(id, layerPick == null ? -1 : layerPick.a()) ? EXTRA_SHOULDERS : EXTRA_HATS, stack, layerPick);
+		}
+		// A shoulder companion (Cosmetics 0.27.0) is drawn like an extra back layer: its model sits on the shoulder.
+		String shoulder = worn.get("shoulder");
+		if (shoulder != null && visible(state)) {
+			addModel(state, EXTRA_BACKPACKS, WardrobeScreen.stack(shoulder), CosmeticMotion.pick(net.item(shoulder), idleOnly));
 		}
 		String back = worn.get("backpack");
 		String kind = back == null ? null : kindOf(back);
@@ -257,7 +285,10 @@ public final class WardrobeSelf {
 			boolean belt = "belt".equals(slot);
 			ItemStackRenderState model = new ItemStackRenderState();
 			bake.accept(model, stack);
-			if (belt) {
+			if ("shoulder".equals(slot)) {
+				// Its own slot since Cosmetics 0.27.0, never the primary back item (that one names the kind).
+				extraList(state, EXTRA_BACKPACKS).add(model);
+			} else if (belt) {
 				if (!layer && state.getData(BELT) == null) state.setData(BELT, model); else extraList(state, EXTRA_BELTS).add(model);
 				if (Boolean.TRUE.equals(cmd.getBoolean(0))) {
 					hideLegs(state);
@@ -336,6 +367,10 @@ public final class WardrobeSelf {
 	 * following the legs instead of the body, which leans when sneaking while the legs only go back.
 	 */
 	static final class BeltLayer extends RenderLayer<AvatarRenderState, PlayerModel> {
+		/** What vanilla HumanoidModel.setupAnim does to the body when sneaking. */
+		private static final float CROUCH_BODY_Y = 3.2f;
+		private static final float CROUCH_BODY_LEAN = 0.5f;
+
 		BeltLayer(RenderLayerParent<AvatarRenderState, PlayerModel> parent) {
 			super(parent);
 		}
@@ -350,6 +385,16 @@ public final class WardrobeSelf {
 			poseStack.pushPose();
 			PlayerModel player = getParentModel();
 			player.root().translateAndRotate(poseStack);
+			// Animation mods (Punchy! Moves and the like) move, twist and lean the body. Follow what
+			// they add on top of vanilla (sneaking: 3.2 px down and 0.5 rad forward, which the belt
+			// leaves out as the legs do), turning about the neck as the body does.
+			ModelPart body = player.body;
+			boolean crouching = state.isCrouching;
+			poseStack.translate(body.x / 16f, (body.y - (crouching ? CROUCH_BODY_Y : 0)) / 16f, body.z / 16f);
+			float lean = body.xRot - (crouching ? CROUCH_BODY_LEAN : 0);
+			if (lean != 0 || body.yRot != 0 || body.zRot != 0) {
+				poseStack.rotate(new Quaternionf().rotationZYX(body.zRot, body.yRot, lean));
+			}
 			// Standing the legs hang from 12 px below the neck; sneaking they go back and a bit down.
 			poseStack.translate(0, (player.rightLeg.y - 12) / 16f, player.rightLeg.z / 16f);
 			poseStack.translate(0, -0.25f, 0);
