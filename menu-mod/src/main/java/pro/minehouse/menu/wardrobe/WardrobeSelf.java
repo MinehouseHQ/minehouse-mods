@@ -85,14 +85,19 @@ public final class WardrobeSelf {
 		if (!(entity instanceof Display.ItemDisplay display) || !(entity.getVehicle() instanceof Avatar)) {
 			return false;
 		}
-		Display.ItemDisplay.ItemRenderState item = display.itemRenderState();
-		// Vanilla can still draw its cached cosmetic after the tracked stack has been cleared.
-		return isCosmeticStack(display.getSlot(0).get()) || (item != null && isCosmeticStack(item.itemStack()));
+		// On removal, also suppress the vanilla renderer's cached copy until it catches up.
+		var cached = display.itemRenderState();
+		return isCosmeticStack(passengerStack(display)) || cached != null && isCosmeticStack(cached.itemStack());
 	}
 
 	private static boolean isCosmeticStack(ItemStack stack) {
 		Identifier model = stack.get(DataComponents.ITEM_MODEL);
 		return model != null && (WardrobeNet.NS.equals(model.getNamespace()) || KARAT_DISPLAY.equals(model));
+	}
+
+	/** Equipment and this tracked data are updated by the packets, before the display's next render tick. */
+	static ItemStack passengerStack(Display.ItemDisplay display) {
+		return display.getSlot(0).get();
 	}
 
 	/** Called at the end of AvatarRenderer.extractRenderState. */
@@ -136,12 +141,14 @@ public final class WardrobeSelf {
 			state.xRot = 0;
 			state.walkAnimationSpeed = 0;
 		}
-		boolean idleOnly = fittingRoom;
+		if (!fittingRoom && (state.isInvisible || state.isSpectator)) return;
 		var assets = ((pro.minehouse.menu.mixin.EquipmentAssetsAccess) mc.getEntityRenderDispatcher()).minehouse$equipmentAssets();
 		ArmorStyle.apply(state, worn, mc.player::getItemBySlot, (key, layer) -> !assets.get(key).getLayers(layer).isEmpty());
+		// Extra layers (no server frames for them) only idle in the fitting room, like previews.
+		boolean idleOnly = fittingRoom;
 		String hat = worn.get("hat");
-		if (hat != null) {
-			CosmeticMotion.Pick pick = CosmeticMotion.pick(net.item(hat), idleOnly);
+		CosmeticMotion.Pick pick = CosmeticMotion.worn(avatar.getId(), net.item(hat), fittingRoom);
+		if (hat != null && CosmeticMotion.draw(pick)) {
 			int frame = pick == null ? -1 : pick.a();
 			ItemStack stack = WardrobeScreen.stack(hat, frame);
 			if (KaratMount.onShoulder(hat, frame)) {
@@ -156,15 +163,16 @@ public final class WardrobeSelf {
 		for (int i = 2; i <= 3; i++) {
 			String id = worn.get(WardrobeNet.wearKey("hat", i));
 			if (id == null) continue;
-			CosmeticMotion.Pick pick = CosmeticMotion.pick(net.item(id), idleOnly);
-			ItemStack stack = WardrobeScreen.stack(id, pick == null ? -1 : pick.a());
-			addModel(state, KaratMount.onShoulder(id, pick == null ? -1 : pick.a()) ? EXTRA_SHOULDERS : EXTRA_HATS, stack, pick);
+			CosmeticMotion.Pick layerPick = CosmeticMotion.pick(net.item(id), idleOnly);
+			ItemStack stack = WardrobeScreen.stack(id, layerPick == null ? -1 : layerPick.a());
+			addModel(state, KaratMount.onShoulder(id, layerPick == null ? -1 : layerPick.a()) ? EXTRA_SHOULDERS : EXTRA_HATS, stack, layerPick);
 		}
 		String back = worn.get("backpack");
 		String kind = back == null ? null : kindOf(back);
-		if (back != null && visible(state) && !(kind != null && underGlider(state))) {
+		CosmeticMotion.Pick backPick = CosmeticMotion.worn(avatar.getId(), net.item(back), fittingRoom);
+		if (back != null && CosmeticMotion.draw(backPick) && visible(state) && !(kind != null && underGlider(state))) {
 			ItemStackRenderState model = new ItemStackRenderState();
-			FrameBlend.resolve(model, WardrobeScreen.stack(back), CosmeticMotion.pick(net.item(back), idleOnly));
+			FrameBlend.resolve(model, WardrobeScreen.stack(back, backPick == null ? -1 : backPick.a()), backPick);
 			state.setData(BACKPACK, model);
 			state.setData(BACK_KIND, kind);
 		}
@@ -174,9 +182,10 @@ public final class WardrobeSelf {
 			if (id != null && !(k != null && underGlider(state))) addModel(state, EXTRA_BACKPACKS, WardrobeScreen.stack(id), CosmeticMotion.pick(net.item(id), idleOnly));
 		}
 		String belt = worn.get("belt");
-		if (belt != null && visible(state)) {
+		CosmeticMotion.Pick beltPick = CosmeticMotion.worn(avatar.getId(), net.item(belt), fittingRoom);
+		if (belt != null && CosmeticMotion.draw(beltPick) && visible(state)) {
 			ItemStackRenderState model = new ItemStackRenderState();
-			FrameBlend.resolve(model, WardrobeScreen.stack(belt), CosmeticMotion.pick(net.item(belt), idleOnly));
+			FrameBlend.resolve(model, WardrobeScreen.stack(belt, beltPick == null ? -1 : beltPick.a()), beltPick);
 			state.setData(BELT, model);
 			WardrobeNet.Item item = net.item(belt);
 			if (item != null && item.hideLegs()) {

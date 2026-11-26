@@ -142,6 +142,10 @@ public final class FrameBlend {
 		}
 	}
 
+	static void clear() {
+		trails.clear();
+	}
+
 	// ------------------------------------------------------------------ pets
 
 	/** A pet's last two frames from the server, when the newer one came and how long the one before it lasted. */

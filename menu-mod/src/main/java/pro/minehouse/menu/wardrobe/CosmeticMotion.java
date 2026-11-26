@@ -7,11 +7,10 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.world.entity.Pose;
 
+import pro.minehouse.wardrobe.AnimationFrames;
+
 /**
- * What you are doing, for your own cosmetics that animate by event (Cosmetics 0.12.0+): the same
- * rules as the server's {@code Motion} in cosmetics-mod (keep the two in step), from the local
- * player, so what the client mod draws on you reacts at once. Other players' cosmetics come with
- * the frame the server picked.
+ * Local animation for the fitting preview and for older servers without authoritative frames.
  *
  * <p>{@link #pick} gives a position between two frames, which {@link FrameBlend} draws blended, so
  * the animation runs at the render frame rate instead of in steps.
@@ -55,8 +54,46 @@ public final class CosmeticMotion {
 	private CosmeticMotion() {
 	}
 
+	private static final Pick HIDDEN = Pick.of(-1);
+
+	static void reset() {
+		seen = null;
+		event = "idle";
+		since = 0;
+		java.util.Arrays.fill(shots, Long.MIN_VALUE / 2);
+		speed = dy = 0;
+		air = hurt = 0;
+		swinging = false;
+		swing = 0;
+	}
+
+	static boolean draw(Pick pick) {
+		return pick != HIDDEN;
+	}
+
+	static Pick worn(int entity, WardrobeNet.Item item, boolean fitting) {
+		if (item == null) return null;
+		String id = item.id();
+		AnimationFrames snapshot = WardrobeNet.animation;
+		if (fitting || snapshot == null) {
+			if (item.specialTimeline()) return Pick.of(item.frame());
+			return pick(item, fitting);
+		}
+		if (item.frames() <= 1 && !item.reacts()) return null;
+		if (snapshot.entityId() != entity) return HIDDEN;
+		AnimationFrames.Frame frame = switch (item.slot()) {
+			case "hat" -> snapshot.hat();
+			case "backpack" -> snapshot.backpack();
+			case "belt" -> snapshot.belt();
+			default -> AnimationFrames.Frame.NONE;
+		};
+		return frame.index() < 0 || !frame.cosmetic().equals(id) ? HIDDEN
+				: Pick.of(frame.index());
+	}
+
 	/** Every client tick. */
 	static void tick(Minecraft mc) {
+		if (WardrobeNet.animation != null) return; // never predict the live outfit on a supporting server
 		LocalPlayer p = mc.player;
 		if (p == null) {
 			seen = null;
@@ -64,6 +101,7 @@ public final class CosmeticMotion {
 		}
 		long now = System.currentTimeMillis();
 		if (p != seen) {
+			reset();
 			seen = p;
 			x = p.getX();
 			y = p.getY();

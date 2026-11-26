@@ -244,14 +244,18 @@ public final class WardrobeScreen extends Screen implements WardrobeNet.FittingV
 	private void refreshArmorButton() {
 		if (armorButton == null) return;
 		ArmorVisibility visibility = state.armorVisibility();
-		armorButton.visible = armorButton.active = visibility != ArmorVisibility.UNAVAILABLE;
+		armorButton.visible = armorButton.active = showsArmorToggle(slot, visibility);
 		armorButton.setMessage(Component.translatable(visibility == ArmorVisibility.HIDDEN
 				? "minehouse.wardrobe.armor.hidden" : "minehouse.wardrobe.armor.visible"));
 		if (!armorButton.visible && armorButton.isFocused()) clearFocus();
 	}
 
+	static boolean showsArmorToggle(Slot slot, ArmorVisibility visibility) {
+		return slot == Slot.ARMOR && visibility != ArmorVisibility.UNAVAILABLE;
+	}
+
 	private int armorRowHeight() {
-		return state.armorVisibility() == ArmorVisibility.UNAVAILABLE ? 0 : ARMOR_ROW_H;
+		return showsArmorToggle(slot, state.armorVisibility()) ? ARMOR_ROW_H : 0;
 	}
 
 	void claimFitting() {
@@ -1024,13 +1028,14 @@ public final class WardrobeScreen extends Screen implements WardrobeNet.FittingV
 			slot = s;
 			scroll = 0;
 			selection.tab(state, s);
+			refreshArmorButton();
 			petPreview(selection.petPreviewId(state));
 		}
 	}
 
 	@Override
 	public boolean keyPressed(KeyEvent event) {
-		if (slot == Slot.ARMOR && event.isConfirmation()) {
+		if (slot == Slot.ARMOR && event.isConfirmation() && getFocused() != armorButton) {
 			activate(selectedItem());
 			return true;
 		}
@@ -1068,6 +1073,8 @@ public final class WardrobeScreen extends Screen implements WardrobeNet.FittingV
 				Box b = new Box(tileX(i), tileY(i), tileX(i) + TILE_W, tileY(i) + TILE_H);
 				if (b.over(mx, my) && my >= gridY0() && my < gridY1()) {
 					WardrobeNet.Item item = items.get(i);
+					// Grid tiles are drawn by the screen, so they must take focus from the widget explicitly.
+					if (getFocused() == armorButton) clearFocus();
 					selection.pick(state, item, requirement(item) == null);
 					petPreview(selection.petPreviewId(state));
 					if (doubleClick && (item.owned() || worn(item))) {

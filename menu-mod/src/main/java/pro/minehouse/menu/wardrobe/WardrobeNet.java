@@ -21,6 +21,7 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.Identifier;
 
 import pro.minehouse.menu.MinehouseMenu;
+import pro.minehouse.wardrobe.AnimationFrames;
 import pro.minehouse.wardrobe.IskrikTimeline;
 
 /**
@@ -96,15 +97,6 @@ public final class WardrobeNet {
 			return idle != null ? idle : new Clip(0, frames, true);
 		}
 
-		/** The clip a frame belongs to (the idle loop if none). */
-		Clip clipOf(int frame) {
-			for (Clip c : clips.values()) {
-				if (frame >= c.start() && frame < c.start() + c.frames()) {
-					return c;
-				}
-			}
-			return idle();
-		}
 
 		boolean cape() {
 			return "cape".equals(kind);
@@ -112,6 +104,14 @@ public final class WardrobeNet {
 
 		boolean dyeable() {
 			return color != null;
+		}
+
+		boolean specialTimeline() {
+			return IskrikTimeline.matches(id, frames, fps) || minerGlints();
+		}
+
+		private boolean minerGlints() {
+			return id.equals("field_belt") && frames == 36 && fps == 20 && clips.isEmpty();
 		}
 
 		/** The owner, F5 layer and wardrobe cards use the same local player's game tick. */
@@ -123,6 +123,7 @@ public final class WardrobeNet {
 
 		int frameAt(UUID wearer, long gameTick, long millis) {
 			if (IskrikTimeline.matches(id, frames, fps)) return wearer == null ? 0 : IskrikTimeline.frame(wearer, gameTick);
+			if (minerGlints()) return 0; // unlit card; the world display receives the exact server pose
 			return frames > 1 ? (int) Math.floorMod(millis * fps / 1000, (long) frames) : 0;
 		}
 	}
@@ -177,11 +178,14 @@ public final class WardrobeNet {
 
 	/** The last state the server sent, or null on servers without the wardrobe. */
 	static State state;
+	static AnimationFrames animation;
 
 	private WardrobeNet() {
 	}
 
 	public static void init() {
+		PayloadTypeRegistry.clientboundPlay().register(AnimationFrames.TYPE, AnimationFrames.CODEC.cast());
+		ClientPlayNetworking.registerGlobalReceiver(AnimationFrames.TYPE, (payload, context) -> animation = payload);
 		PayloadTypeRegistry.clientboundPlay().register(FittingEnd.TYPE, FittingEnd.CODEC.cast());
 		PayloadTypeRegistry.clientboundPlay().register(MultiWear.TYPE, MultiWear.CODEC.cast());
 		PayloadTypeRegistry.clientboundPlay().register(StatePayload.TYPE, StatePayload.CODEC.cast());
@@ -189,7 +193,16 @@ public final class WardrobeNet {
 		ClientPlayNetworking.registerGlobalReceiver(StatePayload.TYPE, (payload, context) -> receive(context.client(), payload.json()));
 		ClientPlayNetworking.registerGlobalReceiver(FittingEnd.TYPE, (payload, context) -> payload.apply(context.client().gui.screen()));
 		ClientPlayNetworking.registerGlobalReceiver(MultiWear.TYPE, (payload, context) -> {});
-		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> state = null);
+		// Gate can swap backend connections without a DISCONNECT. The new play session must start clean.
+		ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> reset());
+		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> reset());
+	}
+
+	static void reset() {
+		state = null;
+		animation = null;
+		CosmeticMotion.reset();
+		FrameBlend.clear();
 	}
 
 	public static boolean available() {

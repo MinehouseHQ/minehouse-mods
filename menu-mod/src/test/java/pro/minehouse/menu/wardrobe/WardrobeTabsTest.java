@@ -33,6 +33,20 @@ class WardrobeTabsTest {
 		}
 	}
 
+	@Test void armorVisibilityControlOnlyAppearsOnItsOwnTab() {
+		for (var visibility : ArmorVisibility.values()) {
+			var active = Slot.HAT;
+			for (var target : List.of(Slot.ARMOR, Slot.PET, Slot.ARMOR, Slot.BACKPACK, Slot.BELT, Slot.HAT)) {
+				var row = new WardrobeScreen.TabRow(8, 8, active, 30);
+				var box = row.tab(target);
+				active = row.hit(box.x0() + box.w() / 2, (box.y0() + box.y1()) / 2);
+				assertEquals(target, active);
+				assertEquals(target == Slot.ARMOR && visibility != ArmorVisibility.UNAVAILABLE,
+						WardrobeScreen.showsArmorToggle(active, visibility), target + " " + visibility);
+			}
+		}
+	}
+
 	@Test void switchingFromAPetPreviewToLockedArmorRestoresTheWornOutfit() {
 		var pet = cosmetic("shorokh", "pet", null);
 		var gold = cosmetic("armor_gold_curb", "armor", null);
