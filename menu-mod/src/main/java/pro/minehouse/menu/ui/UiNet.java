@@ -90,6 +90,11 @@ public final class UiNet {
 		}
 	}
 
+	/** Whether the server draws its windows through us (it registered the window channels). */
+	public static boolean available() {
+		return ClientPlayNetworking.canSend(ActionPayload.TYPE);
+	}
+
 	static void send(JsonObject message) {
 		if (ClientPlayNetworking.canSend(ActionPayload.TYPE)) {
 			ClientPlayNetworking.send(new ActionPayload(message.toString()));

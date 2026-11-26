@@ -11,6 +11,7 @@
     "LivingEntityRendererMixin",
     "LivingEntityRendererSubmitMixin",
     "RidingMinecartSoundMixin",
+    "ServerMenuButtonMixin",
     "SkinPartDisplayMixin",
     "SkinPartStateMixin",
     "TitleScreenMixin",

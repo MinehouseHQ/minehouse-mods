@@ -443,7 +443,7 @@ public final class UiScreen extends Screen implements Fitting {
 				return;
 			}
 			case "item" -> {
-				ItemStack stack = item(n.str("item", "minecraft:barrier"));
+				ItemStack stack = item(n.str("item", "minecraft:barrier"), n.str("model"));
 				g.item(stack, n.x + (n.w - 16) / 2, n.y + (n.h - 16) / 2);
 			}
 			case "model" -> model(g, n, hot, time);
@@ -591,11 +591,19 @@ public final class UiScreen extends Screen implements Fitting {
 	}
 
 	private ItemStack item(String id) {
+		return item(id, null);
+	}
+
+	/** {@code model}: an item_model to show instead (server items sent as a vanilla item with their own model). */
+	private ItemStack item(String id, String model) {
 		if (!itemsReady()) return ItemStack.EMPTY;
-		return items.computeIfAbsent(id, k -> {
-			Identifier i = Identifier.tryParse(k);
+		return items.computeIfAbsent(model == null ? id : id + "#" + model, k -> {
+			Identifier i = Identifier.tryParse(id);
 			var item = i == null ? null : BuiltInRegistries.ITEM.getValue(i);
-			return new ItemStack(item == null ? Items.BARRIER : item);
+			ItemStack stack = new ItemStack(item == null ? Items.BARRIER : item);
+			Identifier m = model == null ? null : Identifier.tryParse(model);
+			if (m != null) stack.set(net.minecraft.core.component.DataComponents.ITEM_MODEL, m);
+			return stack;
 		});
 	}
 

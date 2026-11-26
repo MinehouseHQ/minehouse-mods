@@ -157,6 +157,15 @@ public final class UiTree {
 		return n.flag("coin") ? w + COIN_GAP + COIN : w;
 	}
 
+	/** The lines with "…" at the end of the last one, cut so it still fits. */
+	private List<String> ellipsis(List<String> lines, boolean bold, int w) {
+		List<String> out = new ArrayList<>(lines);
+		String last = out.getLast().stripTrailing();
+		while (!last.isEmpty() && measure.width(last + "…", bold) > w) last = last.substring(0, last.length() - 1).stripTrailing();
+		out.set(out.size() - 1, last + "…");
+		return out;
+	}
+
 	private static int gridWidth(Node n) {
 		int cols = Math.max(1, n.num("cols", 1));
 		return cols * n.num("cw", 16) + (cols - 1) * n.gap + n.padX * 2;
@@ -172,6 +181,8 @@ public final class UiTree {
 				boolean bold = n.flag("bold");
 				String text = n.str("text", "");
 				n.lines = n.flag("wrap") ? measure.wrap(text, bold, Math.max(1, w)) : List.of(text);
+				int max = n.num("lines", 0);
+				if (max > 0 && n.lines.size() > max) n.lines = ellipsis(n.lines.subList(0, max), bold, w);
 				yield Math.max(1, n.lines.size()) * LINE - 1;
 			}
 			case "button" -> n.str("style", "primary").equals("link") ? LINE + 2 : BUTTON_H;
