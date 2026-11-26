@@ -21,10 +21,10 @@ class WardrobeTabsTest {
 				cosmetic("armor_iron_curb", "armor", null), cosmetic("shoulder_cat_mokko", "backpack", null),
 				cosmetic("armor_leather_curb", "armor", null), cosmetic("spider_legs", "belt", null));
 		var expected = Map.of(Slot.ARMOR, List.of("armor_gold_curb", "armor_diamond_curb", "armor_netherite_curb", "armor_iron_curb", "armor_leather_curb"),
-				Slot.PET, List.of("shorokh"), Slot.HAT, List.of("karat"), Slot.CAPE, List.of("angel_wings"),
-				Slot.BACKPACK, List.of("shoulder_cat_mokko"), Slot.BELT, List.of("spider_legs"));
+				Slot.PET, List.of("shorokh"), Slot.HAT, List.of("karat"),
+				Slot.BACKPACK, List.of("angel_wings", "shoulder_cat_mokko"), Slot.BELT, List.of("spider_legs"));
 		Slot active = Slot.HAT;
-		for (Slot target : List.of(Slot.ARMOR, Slot.PET, Slot.ARMOR, Slot.BACKPACK, Slot.CAPE, Slot.BELT, Slot.HAT)) {
+		for (Slot target : List.of(Slot.ARMOR, Slot.PET, Slot.ARMOR, Slot.BACKPACK, Slot.BELT, Slot.HAT)) {
 			var row = new WardrobeScreen.TabRow(8, 8, active, 30); // icon-only minimum-width row
 			var box = row.tab(target);
 			active = row.hit(box.x0() + box.w() / 2, (box.y0() + box.y1()) / 2);
@@ -62,8 +62,9 @@ class WardrobeTabsTest {
 
 	@Test void groundPetHasExactlyOneTabAndShoulderItemsStayOnBack() {
 		assertEquals(List.of("Питомцы"), titles("pet", null));
-		assertEquals(List.of("Спина"), titles("backpack", null));
-		assertEquals(List.of("Крылья"), titles("backpack", "wings"));
+		assertEquals(List.of("Тело"), titles("backpack", null));
+		assertEquals(List.of("Тело"), titles("backpack", "wings"));
+		assertEquals(List.of("Тело"), titles("backpack", "cape"));
 		assertEquals(List.of("Голова"), titles("hat", null));
 		assertEquals(List.of("Пояс"), titles("belt", null));
 		assertTrue(titles("future-slot", null).isEmpty());

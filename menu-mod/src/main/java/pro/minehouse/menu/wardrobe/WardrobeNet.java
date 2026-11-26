@@ -81,7 +81,7 @@ public final class WardrobeNet {
 	 * color: what the player dyed it (or the default), null if it can't be dyed. frames/fps: an
 	 * animated cosmetic (Cosmetics 0.9.0+): one model per frame, picked by custom_model_data "f<n>";
 	 * frames 1 = still. For Iskrik, use the wearer's UUID and level time to choose a pose.
-	 * kind: "cape" or "wings" are worn on the back but listed on their own tab; otherwise null.
+	 * kind: "cape" or "wings" (worn on the back, listed on the «Тело» tab with backpacks); otherwise null.
 	 */
 	public record Item(String id, String slot, String name, int price, boolean owned, Integer color, Integer defaultColor,
 			int frames, int fps, String kind, Map<String, Clip> clips, boolean hideLegs, boolean flatIcon) {

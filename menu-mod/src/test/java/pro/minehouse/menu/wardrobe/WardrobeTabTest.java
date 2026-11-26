@@ -71,16 +71,17 @@ class WardrobeTabTest {
 
 	@Test
 	void eachCategoryHasItsOwnIconInOrder() {
-		assertEquals(List.of(Items.LEATHER_HELMET, Items.BUNDLE, Items.ELYTRA, Items.LEATHER_LEGGINGS, Items.IRON_CHESTPLATE, Items.LEAD),
+		assertEquals(List.of(Items.LEATHER_HELMET, Items.BUNDLE, Items.LEATHER_LEGGINGS, Items.IRON_CHESTPLATE, Items.LEAD),
 				Arrays.stream(WardrobeScreen.Slot.values()).map(slot -> slot.stack().getItem()).toList());
 	}
 
 	@Test
-	void sixIconsAndTheirLabelsAreReachableOnTheMinimumWidthCard() {
-		// Minecraft 26.3 default bitmap font advances. None of the six full titles fits inline.
-		var widths = Map.of("Голова", 36, "Спина", 30, "Крылья", 37, "Пояс", 24, "Броня", 30, "Питомцы", 43);
+	void fiveIconsAndTheirLabelsAreReachableOnTheMinimumWidthCard() {
+		// Minecraft 26.3 default bitmap font advances: the short titles fit inline beside the icon.
+		var widths = Map.of("Голова", 36, "Тело", 24, "Пояс", 24, "Броня", 30, "Питомцы", 43);
 		for (var active : WardrobeScreen.Slot.values()) {
-			var row = new WardrobeScreen.TabRow(8, 8, active, widths.get(active.title));
+			assertEquals(widths.get(active.title) <= 27, new WardrobeScreen.TabRow(8, 8, active, widths.get(active.title)).labelled(), active.title);
+			var row = new WardrobeScreen.TabRow(8, 8, active, 30); // too long: icons only
 			assertFalse(row.labelled(), active.title);
 			int x = 18;
 			for (var slot : WardrobeScreen.Slot.values()) {
@@ -107,13 +108,13 @@ class WardrobeTabTest {
 	@Test
 	void shortActiveLabelIsInlineOnlyIfItFitsBesideTheIcon() {
 		for (var active : WardrobeScreen.Slot.values()) {
-			// 124 inside the track - five 18px icons - 16px icon, 3px gap, 6px padding = 9px.
-			var row = new WardrobeScreen.TabRow(8, 8, active, 9);
+			// 124 inside the track - four 18px icons - 16px icon, 3px gap, 6px padding = 27px.
+			var row = new WardrobeScreen.TabRow(8, 8, active, 27);
 			assertTrue(row.labelled());
-			assertFalse(new WardrobeScreen.TabRow(8, 8, active, 10).labelled());
+			assertFalse(new WardrobeScreen.TabRow(8, 8, active, 28).labelled());
 			for (var slot : WardrobeScreen.Slot.values()) {
 				var box = row.tab(slot);
-				assertEquals(slot == active ? 34 : 18, box.w());
+				assertEquals(slot == active ? 52 : 18, box.w());
 				assertEquals(slot, row.hit(box.x0(), 27));
 				assertEquals(slot == active ? null : slot.title, row.tooltip(box.x0(), 27));
 			}

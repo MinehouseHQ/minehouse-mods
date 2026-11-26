@@ -91,7 +91,7 @@ class WardrobeLayersTest {
 		var cape = item("cape", "backpack", "cape", true);
 		var state = state(Map.of("backpack", "first", "backpack:2", "wings", "backpack:3", "third"), wings, cape);
 		var selection = new WardrobeScreen.Selection();
-		selection.tab(state, WardrobeScreen.Slot.CAPE);
+		selection.tab(state, WardrobeScreen.Slot.BACKPACK);
 		assertEquals("wings", selection.selected);
 		assertEquals(WardrobeScreen.Action.REMOVE, WardrobeScreen.Action.forItem(state, wings, null));
 		selection.pick(state, cape, true);

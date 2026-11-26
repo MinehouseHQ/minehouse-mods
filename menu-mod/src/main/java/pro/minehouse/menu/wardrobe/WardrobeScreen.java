@@ -76,13 +76,12 @@ public final class WardrobeScreen extends Screen implements WardrobeNet.FittingV
 	private static final int TAB_ICON_W = 18;
 
 	/**
-	 * The tabs and the server slot their cosmetics are worn in. Wings and capes are worn on the back
-	 * (one thing there at a time), but have a tab of their own.
+	 * The tabs and the server slot their cosmetics are worn in. Backpacks, wings and capes share the
+	 * "backpack" slot and one tab, «Тело» (one covering thing at a time, see Selection.pick).
 	 */
 	enum Slot {
 		HAT(Tr.s("Голова", "Head"), "hat", () -> Items.LEATHER_HELMET),
-		BACKPACK(Tr.s("Спина", "Back"), "backpack", () -> Items.BUNDLE),
-		CAPE(Tr.s("Крылья", "Wings"), "backpack", () -> Items.ELYTRA),
+		BACKPACK(Tr.s("Тело", "Body"), "backpack", () -> Items.BUNDLE),
 		BELT(Tr.s("Пояс", "Belt"), "belt", () -> Items.LEATHER_LEGGINGS),
 		ARMOR(Tr.s("Броня", "Armor"), "armor", () -> Items.IRON_CHESTPLATE),
 		PET(Tr.s("Питомцы", "Pets"), "pet", () -> Items.LEAD);
@@ -107,7 +106,7 @@ public final class WardrobeScreen extends Screen implements WardrobeNet.FittingV
 		}
 
 		boolean lists(WardrobeNet.Item item) {
-			return item.slot().equals(id) && (this == CAPE) == (item.kind() != null);
+			return item.slot().equals(id);
 		}
 
 		List<WardrobeNet.Item> grid(List<WardrobeNet.Item> catalog) {
@@ -648,7 +647,7 @@ public final class WardrobeScreen extends Screen implements WardrobeNet.FittingV
 		if (hoverHead) {
 			g.setTooltipForNextFrame(font, txt(Tr.s("Голова", "Head")), mouseX, mouseY);
 		} else if (hoverBack && backVisible) {
-			g.setTooltipForNextFrame(font, txt(Tr.s("Спина", "Back")), mouseX, mouseY);
+			g.setTooltipForNextFrame(font, txt(Slot.BACKPACK.title), mouseX, mouseY);
 		}
 	}
 
@@ -1054,10 +1053,7 @@ public final class WardrobeScreen extends Screen implements WardrobeNet.FittingV
 			return true;
 		}
 		if (slot != Slot.PET && backVisible && Math.abs(mx - backX) <= 6 && Math.abs(my - backY) <= 6) {
-			// The tab of what is worn on the back: a backpack's or the wings'.
-			String back = state.worn().get(Slot.BACKPACK.id);
-			WardrobeNet.Item worn = back == null ? null : state.item(back);
-			selectSlot(worn != null ? Slot.of(worn) : Slot.BACKPACK);
+			selectSlot(Slot.BACKPACK);
 			return true;
 		}
 
