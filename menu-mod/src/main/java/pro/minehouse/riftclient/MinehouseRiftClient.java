@@ -8,6 +8,7 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElement;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
@@ -91,16 +92,16 @@ public final class MinehouseRiftClient implements ClientModInitializer {
 		// there is no hunger in the mode. The lobby is a screen over a scene: nothing of the usual
 		// game interface belongs there.
 		for (Identifier vanilla : new Identifier[] {VanillaHudElements.HEALTH_BAR, VanillaHudElements.ARMOR_BAR, VanillaHudElements.FOOD_BAR}) {
-			HudElementRegistry.replaceElement(vanilla, old -> (g, delta) -> {
+			replaceVanilla(vanilla, old -> (g, delta) -> {
 				if (!RiftHud.inRun() && !RiftHud.lobby().inLobby() && !Intro.playing()) {
 					old.extractRenderState(g, delta);
 				}
 			});
 		}
 		for (Identifier vanilla : new Identifier[] {VanillaHudElements.CROSSHAIR, VanillaHudElements.HOTBAR,
-				VanillaHudElements.AIR_BAR, VanillaHudElements.INFO_BAR, VanillaHudElements.INFO_BAR_FOREGROUND, VanillaHudElements.EXPERIENCE_LEVEL,
+				VanillaHudElements.AIR_BAR, VanillaHudElements.INFO_BAR, INFO_BAR_FOREGROUND, VanillaHudElements.EXPERIENCE_LEVEL,
 				VanillaHudElements.HELD_ITEM_TOOLTIP}) {
-			HudElementRegistry.replaceElement(vanilla, old -> (g, delta) -> {
+			replaceVanilla(vanilla, old -> (g, delta) -> {
 				if (!RiftHud.lobby().inLobby() && !Intro.playing()) {
 					old.extractRenderState(g, delta);
 				}
@@ -108,7 +109,7 @@ public final class MinehouseRiftClient implements ClientModInitializer {
 		}
 		for (Identifier vanilla : new Identifier[] {VanillaHudElements.CHAT, VanillaHudElements.BOSS_BAR, VanillaHudElements.SCOREBOARD,
 				VanillaHudElements.MOB_EFFECTS, VanillaHudElements.TITLE_AND_SUBTITLE, VanillaHudElements.OVERLAY_MESSAGE}) {
-			HudElementRegistry.replaceElement(vanilla, old -> (g, delta) -> {
+			replaceVanilla(vanilla, old -> (g, delta) -> {
 				if (!Intro.playing()) {
 					old.extractRenderState(g, delta);
 				}
@@ -117,6 +118,25 @@ public final class MinehouseRiftClient implements ClientModInitializer {
 
 		if ("rift".equals(System.getProperty("minehouse.selftest"))) {
 			SelfTest.register();
+		}
+	}
+
+	/**
+	 * The text layer over the action bar. Fabric API has a constant for it only since 0.165.0
+	 * (VanillaHudElements.INFO_BAR_FOREGROUND): reading that field on an older Fabric API threw
+	 * NoSuchFieldError and the game would not start, so the id is spelled out here.
+	 */
+	private static final Identifier INFO_BAR_FOREGROUND = Identifier.withDefaultNamespace("info_bar_foreground");
+
+	/**
+	 * Wraps a vanilla HUD layer; a layer this Fabric API doesn't have (older or newer versions
+	 * split and rename them) is skipped instead of crashing the game at start.
+	 */
+	private static void replaceVanilla(Identifier vanilla, java.util.function.Function<HudElement, HudElement> replacer) {
+		try {
+			HudElementRegistry.replaceElement(vanilla, replacer);
+		} catch (IllegalArgumentException e) {
+			LOG.warn("No HUD layer {} in this Fabric API, leaving it as is", vanilla);
 		}
 	}
 
