@@ -1,5 +1,6 @@
 package pro.minehouse.menu.wardrobe;
 
+import pro.minehouse.menu.Tr;
 import com.mojang.blaze3d.platform.InputConstants;
 
 import java.io.IOException;
@@ -29,11 +30,14 @@ public final class Wardrobe {
 
 	public static void init() {
 		WardrobeNet.init();
+		pro.minehouse.menu.ui.UiNet.init();
 		WardrobeSelf.init();
+		PetPat.init();
 		PictureInPictureRendererRegistry.register(context -> new WardrobePreview());
 		key = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.minehouse.wardrobe", InputConstants.KEY_O, CATEGORY));
 		ClientLifecycleEvents.CLIENT_STARTED.register(Wardrobe::freeKeyO);
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
+			CosmeticMotion.tick(client);
 			while (key.consumeClick()) {
 				if (client.player == null) {
 					continue;
@@ -41,7 +45,7 @@ public final class Wardrobe {
 				if (WardrobeNet.available()) {
 					WardrobeNet.send("open", null, null);
 				} else {
-					client.player.sendOverlayMessage(Component.literal("На этом сервере нет гардероба"));
+					client.player.sendOverlayMessage(Component.literal(Tr.s("На этом сервере нет гардероба", "This server has no wardrobe")));
 				}
 			}
 		});

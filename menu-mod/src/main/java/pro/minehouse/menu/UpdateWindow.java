@@ -44,7 +44,7 @@ import javax.swing.WindowConstants;
  * Runs as its own Java process (see {@link #runFor}) so the game's JVM never
  * starts AWT, which would fight GLFW on macOS. Uses only the JDK: the process
  * has nothing but our jar on its classpath. The job file is written by
- * {@link PackUpdater#preLaunch}: a header line `from \t to \t mode` (mode:
+ * {@link PackUpdater#preLaunch}: a header line `from \t to \t mode [\t kind]` (mode:
  * none, relaunch or restart) and one line per file `url \t sha512 \t size \t
  * tmp path \t name`. The exit code tells the game what the player chose.
  */
@@ -77,6 +77,8 @@ public final class UpdateWindow extends JPanel {
 	private final String from;
 	private final String to;
 	private final String mode;
+	/** The MineHouse mod alone (installed by hand, not with the pack): the texts say «мод», not «сборка». */
+	private final boolean mod;
 	private final List<Job> jobs;
 	private final long totalBytes;
 	private final Font titleFont;
@@ -86,20 +88,21 @@ public final class UpdateWindow extends JPanel {
 	private JFrame frame;
 
 	private volatile long doneBytes;
-	private volatile String status = "Подключаюсь к сайту…";
-	private volatile String title = "Обновляем MineHouse";
+	private volatile String status = Tr.s("Подключаюсь к сайту…", "Connecting to the website…");
+	private volatile String title = Tr.s("Обновляем MineHouse", "Updating MineHouse");
 	private volatile boolean error;
 	private volatile boolean finished;
-	private volatile List<Btn> buttons = List.of(new Btn("Пропустить", false, SKIPPED));
+	private volatile List<Btn> buttons = List.of(new Btn(Tr.s("Пропустить", "Skip"), false, SKIPPED));
 	private final List<java.awt.Rectangle> buttonRects = new ArrayList<>();
 	private int hover = -1;
 	private volatile int exitCode = SKIPPED;
 	private final Object done = new Object();
 
-	private UpdateWindow(String from, String to, String mode, List<Job> jobs) {
+	private UpdateWindow(String from, String to, String mode, boolean mod, List<Job> jobs) {
 		this.from = from;
 		this.to = to;
 		this.mode = mode;
+		this.mod = mod;
 		this.jobs = jobs;
 		this.totalBytes = Math.max(1, jobs.stream().mapToLong(Job::size).sum());
 		String family = family();
@@ -198,7 +201,7 @@ public final class UpdateWindow extends JPanel {
 			String[] f = line.split("\t", -1);
 			jobs.add(new Job(f[0], f[1], Long.parseLong(f[2]), Path.of(f[3]), f[4]));
 		}
-		UpdateWindow w = new UpdateWindow(head[0], head[1], head[2], jobs);
+		UpdateWindow w = new UpdateWindow(head[0], head[1], head[2], head.length > 3 && "mod".equals(head[3]), jobs);
 		SwingUtilities.invokeAndWait(w::open);
 		Thread worker = new Thread(w::download, "MineHouse update download");
 		worker.setDaemon(true);
@@ -214,11 +217,11 @@ public final class UpdateWindow extends JPanel {
 	/** Shown by {@link UpdateApplier} when the game can't be started again by itself. */
 	static void tellRestart() {
 		try {
-			UpdateWindow w = new UpdateWindow("", "", "restart", List.of());
-			w.title = "Обновление установлено";
-			w.status = "Запусти игру снова, чтобы играть на новой версии.";
+			UpdateWindow w = new UpdateWindow("", "", "restart", false, List.of());
+			w.title = Tr.s("Обновление установлено", "Update installed");
+			w.status = Tr.s("Запусти игру снова, чтобы играть на новой версии.", "Start the game again to play on the new version.");
 			w.doneBytes = w.totalBytes;
-			w.buttons = List.of(new Btn("Хорошо", true, DONE));
+			w.buttons = List.of(new Btn(Tr.s("Хорошо", "OK"), true, DONE));
 			SwingUtilities.invokeAndWait(w::open);
 			synchronized (w.done) {
 				if (!w.finished) {
@@ -231,7 +234,7 @@ public final class UpdateWindow extends JPanel {
 	}
 
 	private void open() {
-		this.frame = new JFrame("Обновление MineHouse");
+		this.frame = new JFrame(Tr.s("Обновление MineHouse", "MineHouse update"));
 		this.frame.setUndecorated(true);
 		this.frame.setBackground(new Color(0, 0, 0, 0));
 		this.frame.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
@@ -305,9 +308,9 @@ public final class UpdateWindow extends JPanel {
 		} catch (Exception e) {
 			System.out.println("Download failed: " + e);
 			this.error = true;
-			this.title = "Не получилось обновить";
-			this.status = "Нет связи с сайтом MineHouse. Игра запустится как есть, обновим позже.";
-			this.buttons = List.of(new Btn("Продолжить", true, FAILED));
+			this.title = Tr.s("Не получилось обновить", "The update failed");
+			this.status = Tr.s("Нет связи с сайтом MineHouse. Игра запустится как есть, обновим позже.", "No connection to the MineHouse website. The game starts as is, we'll update later.");
+			this.buttons = List.of(new Btn(Tr.s("Продолжить", "Continue"), true, FAILED));
 			Timer t = new Timer(8000, ev -> this.finish(FAILED));
 			t.setRepeats(false);
 			t.start();
@@ -317,27 +320,35 @@ public final class UpdateWindow extends JPanel {
 	private void done() {
 		switch (this.mode) {
 			case "relaunch" -> {
-				this.title = "Готово, перезапускаем игру";
-				this.status = "Сборка " + this.to + " установится за пару секунд.";
+				this.title = Tr.s("Готово, перезапускаем игру", "Done, restarting the game");
+				this.status = this.what(true) + " " + this.to + Tr.s(" установится за пару секунд.", " installs in a couple of seconds.");
 				this.buttons = List.of();
 				Timer t = new Timer(1200, e -> this.finish(DONE));
 				t.setRepeats(false);
 				t.start();
 			}
 			case "restart" -> {
-				this.title = "Обновление скачано";
-				this.status = "Закрой игру и запусти её снова: сборка " + this.to + " встанет при закрытии.";
-				this.buttons = List.of(new Btn("Играть без него", false, LATER), new Btn("Закрыть игру", true, DONE));
+				this.title = Tr.s("Обновление скачано", "Update downloaded");
+				this.status = Tr.s("Закрой игру и запусти её снова: ", "Close the game and start it again: ") + this.what(false) + " " + this.to + Tr.s(" встанет при закрытии.", " installs when the game closes.");
+				this.buttons = List.of(new Btn(Tr.s("Играть без него", "Play without it"), false, LATER), new Btn(Tr.s("Закрыть игру", "Close the game"), true, DONE));
 			}
 			default -> {
-				this.title = "Готово";
-				this.status = "Сборка " + this.to + " установлена, запускаем игру.";
+				this.title = Tr.s("Готово", "Done");
+				this.status = this.what(true) + " " + this.to + (this.mod ? Tr.s(" установлен", " is installed") : Tr.s(" установлена", " is installed")) + Tr.s(", запускаем игру.", ", starting the game.");
 				this.buttons = List.of();
 				Timer t = new Timer(700, e -> this.finish(DONE));
 				t.setRepeats(false);
 				t.start();
 			}
 		}
+	}
+
+	/** What is being updated, for the texts: the pack, or our mod on its own. */
+	private String what(boolean capital) {
+		if (this.mod) {
+			return capital ? Tr.s("Мод MineHouse", "MineHouse mod") : Tr.s("мод MineHouse", "MineHouse mod");
+		}
+		return capital ? Tr.s("Сборка", "Modpack") : Tr.s("сборка", "modpack");
 	}
 
 	// ---- drawing -------------------------------------------------------------
@@ -383,7 +394,7 @@ public final class UpdateWindow extends JPanel {
 
 		g.setFont(this.bodyFont);
 		g.setColor(MUTED);
-		String sub = this.from.isEmpty() || this.to.isEmpty() ? "" : "Сборка " + this.from + "  →  " + this.to;
+		String sub = this.from.isEmpty() || this.to.isEmpty() ? "" : this.what(true) + " " + this.from + "  →  " + this.to;
 		if (!sub.isEmpty()) {
 			g.drawString(sub, pad, 106);
 		}
@@ -404,7 +415,7 @@ public final class UpdateWindow extends JPanel {
 		String line = this.status;
 		boolean downloading = !this.error && this.doneBytes < this.totalBytes && !this.jobs.isEmpty();
 		if (downloading) {
-			line = this.status + "   " + mb(this.doneBytes) + " из " + mb(this.totalBytes) + " МБ";
+			line = this.status + "   " + mb(this.doneBytes) + Tr.s(" из ", " of ") + mb(this.totalBytes) + Tr.s(" МБ", " MB");
 		}
 		this.drawWrapped(g, line, pad, 148, barW, 2);
 

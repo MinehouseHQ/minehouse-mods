@@ -1,7 +1,7 @@
 package pro.minehouse.menu.wardrobe;
 
+import pro.minehouse.menu.Tr;
 import java.net.URI;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -11,8 +11,11 @@ import org.joml.Vector3fc;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.ConfirmLinkScreen;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.item.ItemStackRenderState;
@@ -23,9 +26,11 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.util.Mth;
 import net.minecraft.world.item.DyeColor;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.component.CustomModelData;
 import net.minecraft.world.item.component.DyedItemColor;
 import net.minecraft.world.phys.Vec3;
 
@@ -37,7 +42,7 @@ import net.minecraft.world.phys.Vec3;
  * one), a dashed line runs from the right card to the slot being dressed. Drag anywhere else to turn
  * round.
  */
-public final class WardrobeScreen extends Screen {
+public final class WardrobeScreen extends Screen implements WardrobeNet.FittingView, Fitting {
 	// The site's palette (zinc, dark).
 	private static final int CARD = 0xDB09090B;
 	private static final int BORDER = 0xFF27272A;
@@ -66,28 +71,100 @@ public final class WardrobeScreen extends Screen {
 	private static final int TILE_H = 46;
 	private static final int GAP = 4;
 	private static final int COLS = 3;
-	private static final int TABS_H = 18;
+	private static final int TABS_H = 22;
+	/** A tab showing just its icon. */
+	private static final int TAB_ICON_W = 18;
 
-	/** The slots; the ones without a server slot are shown as coming later. */
-	private enum Slot {
-		HAT("Голова", "hat"),
-		BACKPACK("Спина", "backpack"),
-		CAPE("Плащ", null);
+	/**
+	 * The tabs and the server slot their cosmetics are worn in. Wings and capes are worn on the back
+	 * (one thing there at a time), but have a tab of their own.
+	 */
+	enum Slot {
+		HAT(Tr.s("Голова", "Head"), "hat", () -> Items.LEATHER_HELMET),
+		BACKPACK(Tr.s("Спина", "Back"), "backpack", () -> Items.BUNDLE),
+		CAPE(Tr.s("Крылья", "Wings"), "backpack", () -> Items.ELYTRA),
+		BELT(Tr.s("Пояс", "Belt"), "belt", () -> Items.LEATHER_LEGGINGS),
+		ARMOR(Tr.s("Броня", "Armor"), "armor", () -> Items.IRON_CHESTPLATE),
+		PET(Tr.s("Питомцы", "Pets"), "pet", () -> Items.LEAD);
 
 		final String title;
 		final String id;
+		/** Looked up only when drawn: the item registry isn't there in unit tests. */
+		private final java.util.function.Supplier<Item> icon;
+		private ItemStack stack;
 
-		Slot(String title, String id) {
+		Slot(String title, String id, java.util.function.Supplier<Item> icon) {
 			this.title = title;
 			this.id = id;
+			this.icon = icon;
+		}
+
+		ItemStack stack() {
+			if (stack == null) {
+				stack = new ItemStack(icon.get());
+			}
+			return stack;
+		}
+
+		boolean lists(WardrobeNet.Item item) {
+			return item.slot().equals(id) && (this == CAPE) == (item.kind() != null);
+		}
+
+		List<WardrobeNet.Item> grid(List<WardrobeNet.Item> catalog) {
+			return catalog.stream().filter(this::lists).toList();
+		}
+
+		static Slot of(WardrobeNet.Item item) {
+			for (Slot s : values()) {
+				if (s.lists(item)) {
+					return s;
+				}
+			}
+			return HAT;
 		}
 	}
 
 	private WardrobeNet.State state;
+	private Button armorButton;
 	private Slot slot = Slot.HAT;
-	private String selected;
-	/** Slot → what the player wears here: what is worn, plus what is being tried on. */
-	private final Map<String, String> trying = new HashMap<>();
+	private final Selection selection = new Selection();
+
+	/** The preview is the server outfit plus at most one tentative item. */
+	static final class Selection {
+		String selected;
+		Map<String, String> trying = Map.of();
+
+		void pick(WardrobeNet.State state, WardrobeNet.Item item, boolean canTry) {
+			selected = item == null ? null : item.id();
+			if (item == null || !canTry || item.id().equals(state.worn().get(item.slot()))) {
+				trying = state.worn();
+			} else {
+				var preview = new HashMap<>(state.worn());
+				preview.put(item.slot(), item.id());
+				trying = Map.copyOf(preview);
+			}
+		}
+
+		void update(WardrobeNet.State before, WardrobeNet.State after) {
+			var item = after.item(selected);
+			// A removal (including the feature being switched off) is not a new try-on.
+			if (item != null && selected.equals(before.worn().get(item.slot())) && !selected.equals(after.worn().get(item.slot()))) {
+				item = null;
+			}
+			pick(after, item, item != null && item.id().equals(trying.get(item.slot())));
+		}
+
+		String petPreviewId(WardrobeNet.State state) {
+			var item = state.item(selected);
+			return item != null && Slot.PET.lists(item) && !item.id().equals(state.worn().get(Slot.PET.id)) ? item.id() : null;
+		}
+
+		void tab(WardrobeNet.State state, Slot slot) {
+			var item = state.item(state.worn().get(slot.id));
+			pick(state, item != null && slot.lists(item) ? item : null, true);
+		}
+	}
+
 	/** id → colour being tried on (sent to the server at once if the player owns it). */
 	private final Map<String, Integer> tint = new HashMap<>();
 	private float previewYaw = 20;
@@ -109,32 +186,68 @@ public final class WardrobeScreen extends Screen {
 
 	/** The HUD is hidden while you look at yourself; put back as it was. */
 	private Boolean hudWasHidden;
+	private boolean confirmingStoreLink;
+	private boolean expired;
 
 	WardrobeScreen(WardrobeNet.State state) {
-		super(Component.literal("Гардероб"));
+		super(Component.literal(Tr.s("Гардероб", "Wardrobe")));
 		this.state = state;
-		trying.putAll(state.worn());
-		String hat = state.worn().get(Slot.HAT.id);
-		if (hat != null && state.item(hat) != null) {
-			selected = hat;
-		}
+		selection.tab(state, slot);
 	}
 
 	void update(WardrobeNet.State state) {
+		selection.update(this.state, state);
 		this.state = state;
-		trying.clear();
-		trying.putAll(state.worn());
-		if (selected != null) {
-			WardrobeNet.Item item = state.item(selected);
-			if (item != null) {
-				trying.put(item.slot(), item.id());
+		refreshArmorButton();
+	}
+
+	private static final int ARMOR_ROW_H = 22;
+	private final ItemStack armorIcon = new ItemStack(Items.NETHERITE_CHESTPLATE);
+
+	@Override
+	protected void init() {
+		// Native focus, activation and narration; draw it in the same palette as the card.
+		armorButton = addRenderableWidget(new Button(0, 0, LEFT_W - 2 * PAD, 18, Component.empty(),
+				button -> WardrobeNet.requestArmorVisibility(), label -> label.get()) {
+			@Override
+			protected void extractContents(GuiGraphicsExtractor g, int mouseX, int mouseY, float a) {
+				Box box = new Box(getX(), getY(), getRight(), getBottom());
+				card(g, box, isHoveredOrFocused() ? HOVER_BG : MUTED_BG, isFocused() ? FG : BORDER);
+				g.item(armorIcon, box.x0 + 3, box.y0 + 1);
+				text(g, getMessage(), box.x0 + 21, box.y0 + 5, FG);
+				boolean on = state.armorVisibility() == ArmorVisibility.VISIBLE;
+				int x = box.x1 - 24, y = box.y0 + 4;
+				card(g, new Box(x, y, x + 19, y + 10), on ? ACCENT : DISABLED, 0);
+				int knob = x + (on ? 11 : 2);
+				g.fill(knob, y + 2, knob + 6, y + 8, FG);
 			}
-		}
+		});
+		armorButton.setTooltip(Tooltip.create(Component.translatable("minehouse.wardrobe.armor.hint")));
+		refreshArmorButton();
+	}
+
+	private void refreshArmorButton() {
+		if (armorButton == null) return;
+		ArmorVisibility visibility = state.armorVisibility();
+		armorButton.visible = armorButton.active = visibility != ArmorVisibility.UNAVAILABLE;
+		armorButton.setMessage(Component.translatable(visibility == ArmorVisibility.HIDDEN
+				? "minehouse.wardrobe.armor.hidden" : "minehouse.wardrobe.armor.visible"));
+		if (!armorButton.visible && armorButton.isFocused()) clearFocus();
+	}
+
+	private int armorRowHeight() {
+		return state.armorVisibility() == ArmorVisibility.UNAVAILABLE ? 0 : ARMOR_ROW_H;
+	}
+
+	void claimFitting() {
+		petPreview(selection.petPreviewId(state)); // a fresh authorised open, even if the screen was already up
 	}
 
 	@Override
 	public void added() {
 		super.added();
+		confirmingStoreLink = false;
+		claimFitting();
 		hudWasHidden = minecraft.gui.hud.isHidden();
 		if (!hudWasHidden) {
 			minecraft.gui.hud.toggle();
@@ -142,19 +255,34 @@ public final class WardrobeScreen extends Screen {
 	}
 
 	@Override
+	public void expire() {
+		expired = true; // server already removed this session; don't echo pet_close for a later open
+		onClose();
+	}
+
+	@Override
 	public void removed() {
+		if (hasPets() && !confirmingStoreLink && !expired) WardrobeNet.send("pet_close", null, null);
 		if (hudWasHidden != null && !hudWasHidden && minecraft.gui.hud.isHidden()) {
 			minecraft.gui.hud.toggle();
 		}
 		super.removed();
 	}
 
-	Map<String, String> trying() {
-		return trying;
+	@Override
+	public Map<String, String> trying() {
+		// If a tentative style loses its last matching piece, show the server outfit instead.
+		return selection.trying != state.worn() && requirement(selectedItem()) != null ? state.worn() : selection.trying;
 	}
 
-	float previewYaw() {
+	@Override
+	public float previewYaw() {
 		return previewYaw;
+	}
+
+	@Override
+	public Integer tint(String id) {
+		return tint.get(id);
 	}
 
 	@Override
@@ -165,40 +293,55 @@ public final class WardrobeScreen extends Screen {
 	// ------------------------------------------------------------------ data
 
 	private List<WardrobeNet.Item> shown() {
-		List<WardrobeNet.Item> out = new ArrayList<>();
-		for (WardrobeNet.Item item : state.items()) {
-			if (item.slot().equals(slot.id)) {
-				out.add(item);
-			}
-		}
-		return out;
+		return slot.grid(state.items());
 	}
 
 	/** The item for a cosmetic, in its colour: the one being tried in the open wardrobe, else the player's. */
 	static ItemStack stack(String id) {
+		return stack(id, frameOf(id));
+	}
+
+	/** The same at a given frame of its animation (-1: it doesn't move). */
+	static ItemStack stack(String id, int frame) {
+		return stack(id, colorOf(id), frame);
+	}
+
+	private static ItemStack stack(String id, Integer rgb, int frame) {
 		ItemStack stack = new ItemStack(Items.PAPER);
 		stack.set(DataComponents.ITEM_MODEL, Identifier.fromNamespaceAndPath(WardrobeNet.NS, id));
-		Integer rgb = colorOf(id);
 		if (rgb != null) {
 			stack.set(DataComponents.DYED_COLOR, new DyedItemColor(rgb));
+		}
+		if (frame >= 0) {
+			stack.set(DataComponents.CUSTOM_MODEL_DATA, new CustomModelData(List.of(), List.of(), List.of("f" + frame), List.of()));
 		}
 		return stack;
 	}
 
+	/** The current frame of an animated cosmetic, -1 if it doesn't move. */
+	static int frameOf(String id) {
+		WardrobeNet.State st = WardrobeNet.state;
+		WardrobeNet.Item item = st == null ? null : st.item(id);
+		return item == null || item.frames() <= 1 ? -1 : item.frame();
+	}
+
 	static Integer colorOf(String id) {
-		if (Minecraft.getInstance().gui.screen() instanceof WardrobeScreen screen && screen.tint.containsKey(id)) {
-			return screen.tint.get(id);
+		if (Minecraft.getInstance().gui.screen() instanceof Fitting fitting && fitting.fittingScene() && fitting.tint(id) != null) {
+			return fitting.tint(id);
 		}
 		WardrobeNet.State st = WardrobeNet.state;
 		WardrobeNet.Item item = st == null ? null : st.item(id);
 		return item == null ? null : item.color();
 	}
 
-	private ItemStackRenderState model(String id) {
+	private ItemStackRenderState model(WardrobeNet.Item item) {
+		String id = item.id();
+		int frame = item.frames() > 1 ? item.frame() : -1;
 		Integer rgb = colorOf(id);
-		return models.computeIfAbsent(id + "#" + rgb, k -> {
+		return models.computeIfAbsent(id + "#" + rgb + "#" + frame, k -> {
 			ItemStackRenderState out = new ItemStackRenderState();
-			minecraft.getItemModelResolver().updateForTopItem(out, stack(id), ItemDisplayContext.HEAD, minecraft.level, null, 0);
+			minecraft.getItemModelResolver().updateForTopItem(out, stack(id, rgb, frame),
+					Slot.PET.lists(item) ? ItemDisplayContext.FIXED : ItemDisplayContext.HEAD, minecraft.level, null, 0);
 			return out;
 		});
 	}
@@ -207,8 +350,13 @@ public final class WardrobeScreen extends Screen {
 		return item.id().equals(state.worn().get(item.slot()));
 	}
 
+	private String requirement(WardrobeNet.Item item) {
+		if (item == null || !Slot.ARMOR.id.equals(item.slot())) return null;
+		return ArmorStyle.requirement(item.id(), slot -> minecraft.player == null ? ItemStack.EMPTY : minecraft.player.getItemBySlot(slot));
+	}
+
 	private WardrobeNet.Item selectedItem() {
-		return selected == null ? null : state.item(selected);
+		return state.item(selection.selected);
 	}
 
 	// ------------------------------------------------------------------ colours
@@ -221,8 +369,8 @@ public final class WardrobeScreen extends Screen {
 			DYES[i] = all[i].getTextureDiffuseColor() & 0xFFFFFF;
 		}
 	}
-	private static final String[] DYE_NAMES = {"Белый", "Оранжевый", "Сиреневый", "Голубой", "Жёлтый", "Лаймовый", "Розовый",
-			"Серый", "Светло-серый", "Бирюзовый", "Фиолетовый", "Синий", "Коричневый", "Зелёный", "Красный", "Чёрный"};
+	private static final String[] DYE_NAMES = {Tr.s("Белый", "White"), Tr.s("Оранжевый", "Orange"), Tr.s("Сиреневый", "Magenta"), Tr.s("Голубой", "Light blue"), Tr.s("Жёлтый", "Yellow"), Tr.s("Лаймовый", "Lime"), Tr.s("Розовый", "Pink"),
+			Tr.s("Серый", "Gray"), Tr.s("Светло-серый", "Light gray"), Tr.s("Бирюзовый", "Cyan"), Tr.s("Фиолетовый", "Purple"), Tr.s("Синий", "Blue"), Tr.s("Коричневый", "Brown"), Tr.s("Зелёный", "Green"), Tr.s("Красный", "Red"), Tr.s("Чёрный", "Black")};
 	private static final int SWATCH = 12;
 	private static final int SWATCH_GAP = 4;
 	private static final int SWATCH_COLS = 7;
@@ -282,7 +430,7 @@ public final class WardrobeScreen extends Screen {
 
 	// ------------------------------------------------------------------ shapes
 
-	private record Box(int x0, int y0, int x1, int y1) {
+	record Box(int x0, int y0, int x1, int y1) {
 		boolean over(double mx, double my) {
 			return mx >= x0 && mx < x1 && my >= y0 && my < y1;
 		}
@@ -398,7 +546,7 @@ public final class WardrobeScreen extends Screen {
 		// The back is hidden behind the body when facing the camera.
 		backVisible = true;
 
-		int leftH = Math.min(height - 48, TABS_H + PAD * 3 + 2 * (TILE_H + GAP) + 14 + rowsExtra());
+		int leftH = Math.min(height - 48, TABS_H + PAD * 3 + 2 * (TILE_H + GAP) + 14 + rowsExtra() + armorRowHeight());
 		int rightH = rightHeight();
 		int lx = leftAt == null ? center[0] - 70 - LEFT_W : leftAt[0] - LEFT_W;
 		int rx = rightAt == null ? center[0] + 70 : rightAt[0];
@@ -424,7 +572,7 @@ public final class WardrobeScreen extends Screen {
 		if (item == null) {
 			content = 40;
 		} else {
-			content = font.split(bold(item.name()), RIGHT_W - PAD * 2).size() * 11 + 4;
+			content = (font.split(bold(item.name()), RIGHT_W - PAD * 2).size() + requirementLines(item).size()) * 11 + 4;
 			if (item.dyeable()) {
 				content += 12 + swatchRows() * (SWATCH + SWATCH_GAP);
 			}
@@ -443,7 +591,6 @@ public final class WardrobeScreen extends Screen {
 
 	@Override
 	public void extractRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float a) {
-		super.extractRenderState(g, mouseX, mouseY, a);
 		if (minecraft.player == null) {
 			return;
 		}
@@ -452,30 +599,73 @@ public final class WardrobeScreen extends Screen {
 		leftCard(g, mouseX, mouseY, a);
 		rightCard(g, mouseX, mouseY);
 		bottomBar(g, mouseX, mouseY);
+		armorButton.setPosition(left.x0 + PAD, gridY1() + 2);
+		super.extractRenderState(g, mouseX, mouseY, a);
 	}
 
 	/** The dots on the head and the back, and the line from the right card to the slot being dressed. */
 	private void slots(GuiGraphicsExtractor g, int mouseX, int mouseY) {
-		int sx = slot == Slot.BACKPACK ? backX : headX;
-		int sy = slot == Slot.BACKPACK ? backY : headY;
+		// Ground companions have no attachment point on the player's body.
+		if (slot == Slot.PET) return;
+		int sx = slot != Slot.HAT ? backX : headX;
+		int sy = slot != Slot.HAT ? backY : headY;
 		dashedLine(g, right.x0, right.y0 + 14, sx, sy, (ACCENT & 0xFFFFFF) | 0xC0000000);
 		boolean hoverHead = Math.abs(mouseX - headX) <= 6 && Math.abs(mouseY - headY) <= 6;
 		boolean hoverBack = Math.abs(mouseX - backX) <= 6 && Math.abs(mouseY - backY) <= 6;
 		dot(g, headX, headY, slot == Slot.HAT ? ACCENT : (hoverHead ? FG : 0xFFD4D4D8), slot == Slot.HAT);
 		if (backVisible) {
-			dot(g, backX, backY, slot == Slot.BACKPACK ? ACCENT : (hoverBack ? FG : 0xFFD4D4D8), slot == Slot.BACKPACK);
+			dot(g, backX, backY, slot != Slot.HAT ? ACCENT : (hoverBack ? FG : 0xFFD4D4D8), slot != Slot.HAT);
 		}
 		if (hoverHead) {
-			g.setTooltipForNextFrame(font, txt("Голова"), mouseX, mouseY);
+			g.setTooltipForNextFrame(font, txt(Tr.s("Голова", "Head")), mouseX, mouseY);
 		} else if (hoverBack && backVisible) {
-			g.setTooltipForNextFrame(font, txt("Спина"), mouseX, mouseY);
+			g.setTooltipForNextFrame(font, txt(Tr.s("Спина", "Back")), mouseX, mouseY);
 		}
 	}
 
-	private Box tab(Slot s) {
-		int w = (LEFT_W - PAD * 2 - 4) / Slot.values().length;
-		int x = left.x0 + PAD + 2 + s.ordinal() * w;
-		return new Box(x, left.y0 + PAD + 2, x + w, left.y0 + PAD + TABS_H - 2);
+	/** Rendering and mouse input share the same row, including when only icons fit. */
+	record TabRow(int leftX, int leftY, Slot active, int titleWidth) {
+		private static final int INNER = LEFT_W - PAD * 2 - 4;
+
+		boolean labelled() {
+			int wide = INNER - (Slot.values().length - 1) * TAB_ICON_W;
+			return wide >= 16 + 3 + titleWidth + 6;
+		}
+
+		Box tab(Slot s) {
+			Slot[] all = Slot.values();
+			boolean labelled = labelled();
+			int x = leftX + PAD + 2;
+			for (Slot o : all) {
+				int w;
+				if (labelled) {
+					w = o == active ? INNER - (all.length - 1) * TAB_ICON_W : TAB_ICON_W;
+				} else {
+					w = INNER / all.length + (o.ordinal() == all.length - 1 ? INNER % all.length : 0);
+				}
+				if (o == s) {
+					return new Box(x, leftY + PAD + 2, x + w, leftY + PAD + TABS_H - 2);
+				}
+				x += w;
+			}
+			throw new IllegalStateException();
+		}
+
+		String tooltip(double mx, double my) {
+			Slot hovered = hit(mx, my);
+			return hovered == null || (hovered == active && labelled()) ? null : hovered.title;
+		}
+
+		Slot hit(double mx, double my) {
+			for (Slot s : Slot.values()) {
+				if (s.id != null && tab(s).over(mx, my)) return s;
+			}
+			return null;
+		}
+	}
+
+	private TabRow tabRow() {
+		return new TabRow(left.x0, left.y0, slot, font.width(slot.title));
 	}
 
 	private int gridY0() {
@@ -483,7 +673,7 @@ public final class WardrobeScreen extends Screen {
 	}
 
 	private int gridY1() {
-		return left.y1 - PAD - 12;
+		return left.y1 - PAD - 12 - armorRowHeight();
 	}
 
 	private int tileX(int i) {
@@ -503,20 +693,35 @@ public final class WardrobeScreen extends Screen {
 		card(g, left, CARD, BORDER);
 		// Tabs, like shadcn's: a muted track with the active one raised.
 		card(g, new Box(left.x0 + PAD, left.y0 + PAD, left.x1 - PAD, left.y0 + PAD + TABS_H), MUTED_BG, 0);
+		TabRow row = tabRow();
 		for (Slot s : Slot.values()) {
-			Box t = tab(s);
+			Box t = row.tab(s);
 			boolean on = s == slot;
+			boolean hover = t.over(mouseX, mouseY);
 			if (on) {
 				card(g, t, 0xFF09090B, 0xFF27272A);
+			} else if (hover && s.id != null) {
+				card(g, t, HOVER_BG, 0);
 			}
-			int color = s.id == null ? DISABLED : (on ? FG : (t.over(mouseX, mouseY) ? FG : MUTED));
-			centered(g, txt(s.title), (t.x0 + t.x1) / 2, t.y0 + 4, color);
+			int mid = (t.x0 + t.x1) / 2;
+			int iy = t.y0 + (t.y1 - t.y0 - 16) / 2;
+			if (on && row.labelled()) {
+				int w = 16 + 3 + row.titleWidth();
+				int ix = mid - w / 2;
+				g.item(s.stack(), ix, iy);
+				text(g, txt(s.title), ix + 19, iy + 4, FG);
+			} else {
+				g.item(s.stack(), mid - 8, iy);
+
+			}
 		}
+		String tooltip = row.tooltip(mouseX, mouseY);
+		if (tooltip != null) g.setTooltipForNextFrame(font, txt(tooltip), mouseX, mouseY);
 
 		List<WardrobeNet.Item> items = shown();
 		g.enableScissor(left.x0 + 1, gridY0() - 1, left.x1 - 1, gridY1());
 		if (items.isEmpty()) {
-			centered(g, txt(slot.id == null ? "Скоро" : "Пока пусто"), (left.x0 + left.x1) / 2, gridY0() + 30, MUTED);
+			centered(g, txt(slot.id == null ? Tr.s("Скоро", "Soon") : Tr.s("Пока пусто", "Empty so far")), (left.x0 + left.x1) / 2, gridY0() + 30, MUTED);
 		}
 		float time = (minecraft.level != null ? minecraft.level.getGameTime() : 0) + a;
 		for (int i = 0; i < items.size(); i++) {
@@ -528,25 +733,47 @@ public final class WardrobeScreen extends Screen {
 			}
 			Box b = new Box(x, y, x + TILE_W, y + TILE_H);
 			boolean hover = b.over(mouseX, mouseY) && mouseY >= gridY0() && mouseY < gridY1();
-			boolean sel = item.id().equals(selected);
+			String need = requirement(item);
+			boolean sel = item.id().equals(selection.selected);
 			card(g, b, hover ? HOVER_BG : MUTED_BG, sel ? ACCENT : (worn(item) ? 0xFF3F3F46 : BORDER));
-			float spin = hover || sel ? time * 4 : 35;
-			g.guiRenderState.addPicturesInPictureState(new WardrobePreview.State(null, 0, model(item.id()), spin,
-					x + 3, y + 2, x + TILE_W - 3, y + TILE_H - 12, 28, g.scissorStack.peek()));
+			if (item.flatIcon()) {
+				// Use the inventory view for a sprite card: no HEAD pitch or hover rotation.
+				g.pose().pushMatrix();
+				g.pose().translate(x + (TILE_W - 32) / 2, y + 2);
+				g.pose().scale(2f, 2f);
+				g.item(stack(item.id()), 0, 0);
+				g.pose().popMatrix();
+			} else {
+				float spin = hover || sel ? time * 4 : 35;
+				g.guiRenderState.addPicturesInPictureState(new WardrobePreview.State(null, 0, model(item), spin,
+						x + 3, y + 2, x + TILE_W - 3, y + TILE_H - 12, 28, g.scissorStack.peek()));
+			}
 			if (worn(item)) {
-				centered(g, txt("Надето"), x + TILE_W / 2, y + TILE_H - 10, ACCENT);
+				centered(g, txt(need == null ? Tr.s("Надето", "Worn") : Tr.s("Выбран", "Selected")), x + TILE_W / 2, y + TILE_H - 10, ACCENT);
+			} else if (need != null && item.owned()) {
+				centered(g, txt(Tr.s("Нельзя", "Locked")), x + TILE_W / 2, y + TILE_H - 10, MUTED);
 			} else if (item.owned()) {
-				centered(g, txt("Есть"), x + TILE_W / 2, y + TILE_H - 10, GREEN);
+				centered(g, txt(Tr.s("Есть", "Owned")), x + TILE_W / 2, y + TILE_H - 10, GREEN);
 			} else {
 				centeredPrice(g, txt(String.valueOf(item.price())), x + TILE_W / 2, y + TILE_H - 10, MUTED);
 			}
 			if (hover) {
-				g.setTooltipForNextFrame(font, txt(item.name()), mouseX, mouseY);
+				if (need == null) {
+					g.setTooltipForNextFrame(font, txt(item.name()), mouseX, mouseY);
+				} else {
+					g.setComponentTooltipForNextFrame(font, List.of(txt(item.name()), txt(need)), mouseX, mouseY);
+				}
 			}
 		}
 		g.disableScissor();
-		String hint = maxScroll() > 0 ? "Колесо мыши: ещё" : "Двойной клик: надеть";
+		String hint = maxScroll() > 0 ? Tr.s("Колесо мыши: ещё", "Mouse wheel: more") : Tr.s("Двойной клик: надеть", "Double-click: wear");
+		if (slot == Slot.ARMOR && maxScroll() == 0) hint = Tr.s("Клик: о стиле", "Click: style info");
 		text(g, txt(hint), left.x0 + PAD, left.y1 - PAD - 8, FAINT);
+	}
+
+	private List<FormattedCharSequence> requirementLines(WardrobeNet.Item item) {
+		String need = requirement(item);
+		return need == null ? List.of() : font.split(txt(need), RIGHT_W - PAD * 2);
 	}
 
 	private Box actionButton() {
@@ -561,13 +788,13 @@ public final class WardrobeScreen extends Screen {
 
 	private String actionLabel(WardrobeNet.Item item) {
 		if (item == null) {
-			return "Надеть";
+			return Tr.s("Надеть", "Wear");
 		}
 		if (worn(item)) {
-			return "Снять";
+			return Tr.s("Снять", "Take off");
 		}
 		if (item.owned()) {
-			return "Надеть";
+			return Tr.s("Надеть", "Wear");
 		}
 		return String.valueOf(item.price());
 	}
@@ -577,9 +804,28 @@ public final class WardrobeScreen extends Screen {
 		return item != null && !item.owned();
 	}
 
-	private boolean actionEnabled() {
-		WardrobeNet.Item item = selectedItem();
-		return item != null && (item.owned() || state.coins() >= item.price());
+	enum Action {
+		NONE, REMOVE, WEAR, BUY;
+
+		static Action forItem(WardrobeNet.Item item, boolean worn, String requirement, int coins) {
+			if (item == null) return NONE;
+			if (worn) return REMOVE;
+			if (item.owned()) return requirement == null ? WEAR : NONE;
+			return coins >= item.price() ? BUY : NONE;
+		}
+	}
+
+	private Action action(WardrobeNet.Item item) {
+		return Action.forItem(item, item != null && worn(item), requirement(item), state.coins());
+	}
+
+	/** All activation paths re-read the equipped stacks, independently of the last frame. */
+	private void activate(WardrobeNet.Item item) {
+		switch (action(item)) {
+			case WEAR, REMOVE -> equipOrRemove(item);
+			case BUY -> WardrobeNet.send("buy", "id", item.id());
+			case NONE -> { }
+		}
 	}
 
 	private void rightCard(GuiGraphicsExtractor g, int mouseX, int mouseY) {
@@ -590,7 +836,7 @@ public final class WardrobeScreen extends Screen {
 		text(g, txt(slot.title), x, y + 2, MUTED);
 		if (item != null) {
 			boolean price = buys(item) && !worn(item);
-			Component badge = txt(worn(item) ? "Надето" : (item.owned() ? "Есть" : String.valueOf(item.price())));
+			Component badge = txt(worn(item) ? (requirement(item) == null ? Tr.s("Надето", "Worn") : Tr.s("Выбран", "Selected")) : (item.owned() ? Tr.s("Есть", "Owned") : String.valueOf(item.price())));
 			int bw = (price ? priceWidth(badge) : font.width(badge)) + 10;
 			Box b = new Box(right.x1 - PAD - bw, y, right.x1 - PAD, y + 12);
 			card(g, b, 0x00000000, worn(item) ? ACCENT : BORDER);
@@ -603,9 +849,9 @@ public final class WardrobeScreen extends Screen {
 		y += 16;
 		swatchY = -1;
 		if (item == null) {
-			text(g, txt("Выбери вещь слева"), x, y + 2, FG);
-			text(g, txt("или точку на себе,"), x, y + 13, MUTED);
-			text(g, txt("чтобы примерить"), x, y + 24, MUTED);
+			text(g, txt(Tr.s("Выбери вещь слева", "Pick an item on the left")), x, y + 2, FG);
+			text(g, txt(Tr.s("или точку на себе,", "or a spot on yourself")), x, y + 13, MUTED);
+			text(g, txt(Tr.s("чтобы примерить", "to try it on")), x, y + 24, MUTED);
 			y += 40;
 		} else {
 			for (FormattedCharSequence line : font.split(bold(item.name()), RIGHT_W - PAD * 2)) {
@@ -613,8 +859,12 @@ public final class WardrobeScreen extends Screen {
 				y += 11;
 			}
 			y += 4;
+			for (FormattedCharSequence line : requirementLines(item)) {
+				g.text(font, line, x, y, MUTED, false);
+				y += 11;
+			}
 			if (item.dyeable()) {
-				text(g, txt("Цвет"), x, y, MUTED);
+				text(g, txt(Tr.s("Цвет", "Color")), x, y, MUTED);
 				y += 12;
 				swatchY = y;
 				Integer c = colorOf(item.id());
@@ -632,7 +882,7 @@ public final class WardrobeScreen extends Screen {
 						centered(g, Component.literal("↺"), (s.x0 + s.x1) / 2 + 1, s.y0 + 2, (rgb & 0xFFFFFF) > 0x808080 ? 0xFF18181B : 0xFFFFFFFF);
 					}
 					if (hover) {
-						g.setTooltipForNextFrame(font, txt(i == 0 ? "Как было" : DYE_NAMES[i - 1]), mouseX, mouseY);
+						g.setTooltipForNextFrame(font, txt(i == 0 ? Tr.s("Как было", "Undo") : DYE_NAMES[i - 1]), mouseX, mouseY);
 					}
 				}
 				y += swatchRows() * (SWATCH + SWATCH_GAP);
@@ -642,7 +892,7 @@ public final class WardrobeScreen extends Screen {
 		buttonsY = y;
 
 		Box act = actionButton();
-		boolean on = actionEnabled();
+		boolean on = action(item) != Action.NONE;
 		boolean hover = on && act.over(mouseX, mouseY);
 		boolean remove = item != null && worn(item);
 		if (remove) {
@@ -659,7 +909,7 @@ public final class WardrobeScreen extends Screen {
 		Box off = takeOffButton();
 		boolean offOn = !state.worn().isEmpty();
 		card(g, off, offOn && off.over(mouseX, mouseY) ? HOVER_BG : 0x00000000, BORDER);
-		centered(g, txt("Снять всё"), (off.x0 + off.x1) / 2, off.y0 + 5, offOn ? FG : DISABLED);
+		centered(g, txt(Tr.s("Снять всё", "Take all off")), (off.x0 + off.x1) / 2, off.y0 + 5, offOn ? FG : DISABLED);
 
 		// The balance, under a rule.
 		g.fill(right.x0 + 1, buttonsY + 24, right.x1 - 1, buttonsY + 25, BORDER);
@@ -667,7 +917,7 @@ public final class WardrobeScreen extends Screen {
 		Component balance = bold(String.valueOf(state.coins()));
 		text(g, balance, x, by + 2, FG);
 		coin(g, x + font.width(balance) + COIN_GAP, by + 1);
-		Component top = txt("Пополнить");
+		Component top = txt(Tr.s("Пополнить", "Top up"));
 		int tw = font.width(top);
 		boolean topHover = topUpButton().over(mouseX, mouseY);
 		text(g, top, right.x1 - PAD - tw, by + 2, topHover ? FG : ACCENT);
@@ -675,13 +925,13 @@ public final class WardrobeScreen extends Screen {
 
 	private Box topUpButton() {
 		int by = buttonsY + 29;
-		int tw = font.width(txt("Пополнить"));
+		int tw = font.width(txt(Tr.s("Пополнить", "Top up")));
 		return new Box(right.x1 - PAD - tw - 2, by - 2, right.x1 - PAD + 2, by + 12);
 	}
 
 	/** The hints along the bottom, like keyboard shortcuts on the site. */
 	private void bottomBar(GuiGraphicsExtractor g, int mouseX, int mouseY) {
-		String[][] parts = {{"ЛКМ", "выбрать"}, {"тяни", "повернуться"}, {"Esc", "выйти"}};
+		String[][] parts = {{Tr.s("ЛКМ", "LMB"), Tr.s("выбрать", "choose")}, {Tr.s("тяни", "drag"), Tr.s("повернуться", "turn")}, {"Esc", Tr.s("выйти", "exit")}};
 		int w = 12;
 		for (String[] p : parts) {
 			w += font.width(txt(p[0])) + 8 + 4 + font.width(txt(p[1])) + 12;
@@ -703,26 +953,53 @@ public final class WardrobeScreen extends Screen {
 
 	// ------------------------------------------------------------------ input
 
-	private void pick(WardrobeNet.Item item) {
-		selected = item.id();
-		trying.clear();
-		trying.putAll(state.worn());
-		trying.put(item.slot(), item.id());
+	private boolean hasPets() {
+		return state.items().stream().anyMatch(Slot.PET::lists);
+	}
+
+	/** The server draws this slot even for our own player. No client equipment layer. */
+	private void petPreview(String overrideId) {
+		if (hasPets()) {
+			WardrobeNet.send("pet_preview", overrideId == null ? null : "id", overrideId);
+		}
+	}
+
+	private void equipOrRemove(WardrobeNet.Item item) {
+		boolean remove = worn(item);
+		if (Slot.PET.lists(item)) {
+			petPreview(null); // follow authoritative equipment after the action, even if it is rejected
+		}
+		WardrobeNet.send(remove ? "remove" : "wear", remove ? "slot" : "id", remove ? item.slot() : item.id());
+	}
+
+	/** The server may expire the fitting while the player is reading the store confirmation. */
+	private static final class StoreLink extends ConfirmLinkScreen implements WardrobeNet.FittingView {
+		StoreLink(WardrobeScreen parent, URI url) {
+			super(accept -> {
+				if (accept) com.mojang.blaze3d.Blaze3D.openUri(url);
+				parent.minecraft.gui.setScreen(parent);
+			}, url, true);
+		}
+
+		@Override public void expire() { onClose(); } // dismiss without invoking the return-to-parent callback
 	}
 
 	private void selectSlot(Slot s) {
 		if (slot != s) {
 			slot = s;
 			scroll = 0;
+			selection.tab(state, s);
+			petPreview(selection.petPreviewId(state));
 		}
-		// Show what is worn there, if anything.
-		String worn = s.id == null ? null : state.worn().get(s.id);
-		WardrobeNet.Item item = worn == null ? null : state.item(worn);
-		if (item != null) {
-			pick(item);
-		} else if (selectedItem() != null && !selectedItem().slot().equals(s.id)) {
-			selected = null;
+	}
+
+	@Override
+	public boolean keyPressed(KeyEvent event) {
+		if (slot == Slot.ARMOR && event.isConfirmation()) {
+			activate(selectedItem());
+			return true;
 		}
+		return super.keyPressed(event);
 	}
 
 	@Override
@@ -733,32 +1010,37 @@ public final class WardrobeScreen extends Screen {
 			return super.mouseClicked(event, doubleClick);
 		}
 
+		if (super.mouseClicked(event, doubleClick)) return true;
+
 		// The slot points on the player.
-		if (Math.abs(mx - headX) <= 6 && Math.abs(my - headY) <= 6) {
+		if (slot != Slot.PET && Math.abs(mx - headX) <= 6 && Math.abs(my - headY) <= 6) {
 			selectSlot(Slot.HAT);
 			return true;
 		}
-		if (backVisible && Math.abs(mx - backX) <= 6 && Math.abs(my - backY) <= 6) {
-			selectSlot(Slot.BACKPACK);
+		if (slot != Slot.PET && backVisible && Math.abs(mx - backX) <= 6 && Math.abs(my - backY) <= 6) {
+			// The tab of what is worn on the back: a backpack's or the wings'.
+			String back = state.worn().get(Slot.BACKPACK.id);
+			WardrobeNet.Item worn = back == null ? null : state.item(back);
+			selectSlot(worn != null ? Slot.of(worn) : Slot.BACKPACK);
 			return true;
 		}
 
 		if (left.over(mx, my)) {
-			for (Slot s : Slot.values()) {
-				if (s.id != null && tab(s).over(mx, my)) {
-					selectSlot(s);
-					return true;
-				}
+			Slot hit = tabRow().hit(mx, my);
+			if (hit != null) {
+				selectSlot(hit);
+				return true;
 			}
 			List<WardrobeNet.Item> items = shown();
 			for (int i = 0; i < items.size(); i++) {
 				Box b = new Box(tileX(i), tileY(i), tileX(i) + TILE_W, tileY(i) + TILE_H);
 				if (b.over(mx, my) && my >= gridY0() && my < gridY1()) {
 					WardrobeNet.Item item = items.get(i);
-					if (doubleClick && item.owned()) {
-						WardrobeNet.send(worn(item) ? "remove" : "wear", worn(item) ? "slot" : "id", worn(item) ? item.slot() : item.id());
+					selection.pick(state, item, requirement(item) == null);
+					petPreview(selection.petPreviewId(state));
+					if (doubleClick && (item.owned() || worn(item))) {
+						activate(item);
 					}
-					pick(item);
 					return true;
 				}
 			}
@@ -779,25 +1061,21 @@ public final class WardrobeScreen extends Screen {
 					}
 				}
 			}
-			if (actionButton().over(mx, my) && actionEnabled()) {
-				if (worn(sel)) {
-					WardrobeNet.send("remove", "slot", sel.slot());
-				} else if (sel.owned()) {
-					WardrobeNet.send("wear", "id", sel.id());
-				} else {
-					WardrobeNet.send("buy", "id", sel.id());
-				}
+			if (actionButton().over(mx, my)) {
+				activate(sel);
 				return true;
 			}
 			if (takeOffButton().over(mx, my) && !state.worn().isEmpty()) {
+				petPreview(null);
 				for (String s : state.worn().keySet()) {
 					WardrobeNet.send("remove", "slot", s);
 				}
-				selected = null;
+				selection.pick(state, null, false);
 				return true;
 			}
 			if (topUpButton().over(mx, my)) {
-				ConfirmLinkScreen.confirmLinkNow(this, URI.create(state.store()));
+				confirmingStoreLink = true; // this screen is restored after the link confirmation
+				minecraft.gui.setScreen(new StoreLink(this, URI.create(state.store())));
 				return true;
 			}
 			return true;

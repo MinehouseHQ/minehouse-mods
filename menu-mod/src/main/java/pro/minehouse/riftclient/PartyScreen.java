@@ -1,5 +1,6 @@
 package pro.minehouse.riftclient;
 
+import pro.minehouse.menu.Tr;
 import java.util.List;
 
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
@@ -34,7 +35,7 @@ public final class PartyScreen extends Screen {
 	private int rightTop;
 
 	private PartyScreen() {
-		super(Component.literal("Разлом"));
+		super(Component.literal(Tr.s("Разлом", "The Rift")));
 	}
 
 	static void open() {
@@ -64,7 +65,7 @@ public final class PartyScreen extends Screen {
 
 	/** Only the free ones can be called; the rest of the list says why not. */
 	static String personNote(RiftUiPayloads.Person p) {
-		return p.state() == 1 ? "приглашён" : p.state() == 2 ? "в забеге" : "";
+		return p.state() == 1 ? Tr.s("приглашён", "invited") : p.state() == 2 ? Tr.s("в забеге", "in a run") : "";
 	}
 
 	@Override
@@ -76,10 +77,10 @@ public final class PartyScreen extends Screen {
 		// The top bar: back to survival, and out of the party when there is one.
 		int bx = this.width - 8;
 		bx -= 74;
-		this.addRenderableWidget(new Ui.Flat(bx, 4, 74, 14, Component.literal("На выживание"), Ui.INK, 0xE9D5FF, Ui.EDGE, 1f, () -> send("hub", "")));
+		this.addRenderableWidget(new Ui.Flat(bx, 4, 74, 14, Component.literal(Tr.s("На выживание", "To survival")), Ui.INK, 0xE9D5FF, Ui.EDGE, 1f, () -> send("hub", "")));
 		if (l.canLeave()) {
 			bx -= 82;
-			this.addRenderableWidget(new Ui.Flat(bx, 4, 78, 14, Component.literal("Покинуть отряд"), Ui.INK, 0xFECDD3, 0x9F1239, 1f, () -> send("leave", "")));
+			this.addRenderableWidget(new Ui.Flat(bx, 4, 78, 14, Component.literal(Tr.s("Покинуть отряд", "Leave the party")), Ui.INK, 0xFECDD3, 0x9F1239, 1f, () -> send("leave", "")));
 		}
 
 		// Left: who is on the server.
@@ -89,7 +90,7 @@ public final class PartyScreen extends Screen {
 		for (int i = 0; i < this.peopleRows; i++) {
 			RiftUiPayloads.Person p = this.shownPeople.get(i);
 			if (p.state() == 0 && l.canInvite()) {
-				this.addRenderableWidget(new Ui.Flat(x + LEFT_W - 46, y + 1, 44, ROW - 2, Component.literal("ПОЗВАТЬ"), Ui.ACCENT, 0x14092A, -1, 0.75f,
+				this.addRenderableWidget(new Ui.Flat(x + LEFT_W - 46, y + 1, 44, ROW - 2, Component.literal(Tr.s("ПОЗВАТЬ", "INVITE")), Ui.ACCENT, 0x14092A, -1, 0.75f,
 						() -> send("invite", p.name())));
 			}
 			y += ROW + 2;
@@ -99,13 +100,13 @@ public final class PartyScreen extends Screen {
 		}
 		if (l.canInvite()) {
 			y += 12;
-			this.nickBox = new EditBox(this.font, x, y, LEFT_W - 48, 16, Component.literal("Ник"));
+			this.nickBox = new EditBox(this.font, x, y, LEFT_W - 48, 16, Component.literal(Tr.s("Ник", "Name")));
 			this.nickBox.setMaxLength(16);
-			this.nickBox.setHint(Component.literal("Ник друга"));
+			this.nickBox.setHint(Component.literal(Tr.s("Ник друга", "Friend's name")));
 			this.nickBox.setValue(this.nick);
 			this.nickBox.setResponder(v -> this.nick = v);
 			this.addRenderableWidget(this.nickBox);
-			this.addRenderableWidget(new Ui.Flat(x + LEFT_W - 46, y, 46, 16, Component.literal("ПОЗВАТЬ"), Ui.ACCENT, 0x14092A, -1, 0.75f, this::invite));
+			this.addRenderableWidget(new Ui.Flat(x + LEFT_W - 46, y, 46, 16, Component.literal(Tr.s("ПОЗВАТЬ", "INVITE")), Ui.ACCENT, 0x14092A, -1, 0.75f, this::invite));
 		} else {
 			this.nickBox = null;
 		}
@@ -114,16 +115,16 @@ public final class PartyScreen extends Screen {
 		int rx = this.width - RIGHT_W - 8;
 		int ry = this.height - 6 - 28;
 		ry -= 34;
-		this.addRenderableWidget(new Ui.Flat(rx, ry, RIGHT_W, 30, Component.literal(l.ready() ? "НЕ ГОТОВ" : "ГОТОВ"), l.ready() ? 0x6B5A8F : Ui.YELLOW,
+		this.addRenderableWidget(new Ui.Flat(rx, ry, RIGHT_W, 30, Component.literal(l.ready() ? Tr.s("НЕ ГОТОВ", "NOT READY") : Tr.s("ГОТОВ", "READY")), l.ready() ? 0x6B5A8F : Ui.YELLOW,
 				l.ready() ? Ui.WHITE : 0x1C1300, -1, 2f, () -> send("ready", "")));
 		if (l.canSearch()) {
 			ry -= 20;
-			this.addRenderableWidget(new Ui.Flat(rx, ry, RIGHT_W, 16, Component.literal("ПОДБОР ИГРОКОВ: " + (l.searching() ? "ВКЛ" : "ВЫКЛ")), Ui.PANEL_DIM,
+			this.addRenderableWidget(new Ui.Flat(rx, ry, RIGHT_W, 16, Component.literal(Tr.s("ПОДБОР ИГРОКОВ: ", "MATCHMAKING: ") + (l.searching() ? Tr.s("ВКЛ", "ON") : Tr.s("ВЫКЛ", "OFF"))), Ui.PANEL_DIM,
 					Ui.WHITE, l.searching() ? Ui.ACCENT : Ui.EDGE, 0.75f, () -> send("search", "")));
 		}
 		if (!l.invitedBy().isEmpty()) {
 			ry -= 20;
-			this.addRenderableWidget(new Ui.Flat(rx, ry, RIGHT_W, 16, Component.literal("ВСТУПИТЬ К " + l.invitedBy().toUpperCase(java.util.Locale.ROOT)),
+			this.addRenderableWidget(new Ui.Flat(rx, ry, RIGHT_W, 16, Component.literal(Tr.s("ВСТУПИТЬ К ", "JOIN ") + l.invitedBy().toUpperCase(java.util.Locale.ROOT)),
 					Ui.GREEN, 0x052E16, -1, 0.75f, () -> send("accept", "")));
 		}
 		this.rightTop = ry;
@@ -158,9 +159,9 @@ public final class PartyScreen extends Screen {
 	/** What a place of the party says under the name. */
 	static String slotNote(RiftUiPayloads.Slot s, boolean searching) {
 		if (s.name().isEmpty()) {
-			return searching ? "ПОДБОР" : "СВОБОДНО";
+			return searching ? Tr.s("ПОДБОР", "MATCHMAKING") : Tr.s("СВОБОДНО", "FREE");
 		}
-		return (s.leader() ? "ЛИДЕР · " : "") + (s.ready() ? "ГОТОВ" : "НЕ ГОТОВ");
+		return (s.leader() ? Tr.s("ЛИДЕР · ", "LEADER · ") : "") + (s.ready() ? Tr.s("ГОТОВ", "READY") : Tr.s("НЕ ГОТОВ", "NOT READY"));
 	}
 
 	@Override
@@ -174,12 +175,12 @@ public final class PartyScreen extends Screen {
 		// The top bar.
 		g.fill(0, 0, this.width, BAR, Ui.a(Ui.INK, 0.92f));
 		g.fill(0, BAR, this.width, BAR + 1, Ui.a(0x2A1A4A, 1));
-		Ui.big(g, this.font, "РАЗЛОМ", 10, 5, 1.5f, Ui.a(Ui.ACCENT, 1), 0);
-		int tab = 10 + (int) (this.font.width("РАЗЛОМ") * 1.5f) + 12;
-		int tabW = this.font.width("ОТРЯД") + 16;
+		Ui.big(g, this.font, Tr.s("РАЗЛОМ", "THE RIFT"), 10, 5, 1.5f, Ui.a(Ui.ACCENT, 1), 0);
+		int tab = 10 + (int) (this.font.width(Tr.s("РАЗЛОМ", "THE RIFT")) * 1.5f) + 12;
+		int tabW = this.font.width(Tr.s("ОТРЯД", "PARTY")) + 16;
 		g.fill(tab, 0, tab + tabW, BAR, Ui.a(Ui.PANEL, 1));
 		g.fill(tab, BAR - 2, tab + tabW, BAR, Ui.a(Ui.ACCENT, 1));
-		g.text(this.font, "ОТРЯД", tab + 8, 7, 0xFFFFFFFF, false);
+		g.text(this.font, Tr.s("ОТРЯД", "PARTY"), tab + 8, 7, 0xFFFFFFFF, false);
 		String me = this.minecraft.player == null ? "" : this.minecraft.player.getGameProfile().name();
 		int right = this.width - 8 - 74 - (l.canLeave() ? 82 : 0) - 8;
 		int nameW = this.font.width(me);
@@ -191,7 +192,7 @@ public final class PartyScreen extends Screen {
 		// Left: players on the server.
 		int x = 8;
 		int y = BAR + 8;
-		Ui.label(g, this.font, "ИГРОКИ НА СЕРВЕРЕ", x, y, 0xB9A9D6);
+		Ui.label(g, this.font, Tr.s("ИГРОКИ НА СЕРВЕРЕ", "PLAYERS ON THE SERVER"), x, y, 0xB9A9D6);
 		y += 10;
 		List<RiftUiPayloads.Person> people = this.shownPeople;
 		for (int i = 0; i < this.peopleRows; i++) {
@@ -211,30 +212,30 @@ public final class PartyScreen extends Screen {
 			y += ROW + 2;
 		}
 		if (people.isEmpty()) {
-			g.text(this.font, "Пока никого больше нет", x, y + 1, Ui.a(Ui.MUTED, 1), false);
+			g.text(this.font, Tr.s("Пока никого больше нет", "Nobody else yet"), x, y + 1, Ui.a(Ui.MUTED, 1), false);
 			y += 12;
 		} else if (people.size() > this.peopleRows) {
-			Ui.label(g, this.font, "и ещё " + (people.size() - this.peopleRows), x, y, 0xB9A9D6);
+			Ui.label(g, this.font, Tr.s("и ещё ", "and ") + (people.size() - this.peopleRows), x, y, 0xB9A9D6);
 		}
 		if (l.canInvite()) {
-			Ui.label(g, this.font, "ПОЗВАТЬ ПО НИКУ", x, y + 3, 0xB9A9D6);
+			Ui.label(g, this.font, Tr.s("ПОЗВАТЬ ПО НИКУ", "INVITE BY NAME"), x, y + 3, 0xB9A9D6);
 		}
 
 		// Right: the note, then (above the buttons) the mode and the party.
 		int rx = this.width - RIGHT_W - 8;
-		String note = l.startIn() >= 0 ? "&dВсе готовы, заходим через &f" + l.startIn() + " с"
-				: l.note().isEmpty() ? "&7Заходим, когда готовы все." : l.note();
+		String note = l.startIn() >= 0 ? Tr.s("&dВсе готовы, заходим через &f", "&dEveryone's ready, going in in &f") + l.startIn() + Tr.s(" с", " s")
+				: l.note().isEmpty() ? Tr.s("&7Заходим, когда готовы все.", "&7We go in when everyone's ready.") : l.note();
 		g.textWithWordWrap(this.font, RiftText.component(note), rx, this.height - 6 - 27, RIGHT_W, 0xFFFFFFFF);
 		int ry = this.rightTop - 4;
 		// The description in letters of the usual size: shrunk ones come out uneven on most screens.
-		Component about = Component.literal("Залы с волнами и Страж. До " + Math.max(1, l.slots().size()) + " игроков, вещи выдаются на входе.");
+		Component about = Component.literal(Tr.s("Залы с волнами и Страж. До ", "Halls with waves and the Guardian. Up to ") + Math.max(1, l.slots().size()) + Tr.s(" игроков, вещи выдаются на входе.", " players, gear is given at the entrance."));
 		int aboutH = this.font.wordWrapHeight(about, RIGHT_W - 12);
 		int card = 28 + aboutH + 4;
 		ry -= card;
 		Ui.panel(g, rx, ry, RIGHT_W, card, Ui.PANEL, 0.9f);
 		g.fill(rx, ry, rx + RIGHT_W, ry + 2, Ui.a(Ui.ACCENT, 1));
-		Ui.label(g, this.font, "РЕЖИМ", rx + 6, ry + 6, 0xB9A9D6);
-		g.text(this.font, "Данж на отряд", rx + 6, ry + 14, 0xFFFFFFFF, false);
+		Ui.label(g, this.font, Tr.s("РЕЖИМ", "MODE"), rx + 6, ry + 6, 0xB9A9D6);
+		g.text(this.font, Tr.s("Данж на отряд", "Party dungeon"), rx + 6, ry + 14, 0xFFFFFFFF, false);
 		g.textWithWordWrap(this.font, about, rx + 6, ry + 27, RIGHT_W - 12, Ui.a(Ui.MUTED, 1));
 		ry -= 4;
 		for (int i = l.slots().size() - 1; i >= 0; i--) {
@@ -244,7 +245,7 @@ public final class PartyScreen extends Screen {
 			Ui.panel(g, rx, ry, RIGHT_W, 18, empty ? Ui.PANEL_DIM : s.ready() ? 0x14532D : Ui.PANEL, 0.9f);
 			g.fill(rx, ry + 16, rx + RIGHT_W, ry + 18, Ui.a(empty ? (l.searching() ? Ui.ACCENT : 0x3A2A5C) : s.ready() ? Ui.GREEN : 0x6B5A8F, 1));
 			if (empty) {
-				g.text(this.font, l.searching() ? "Ищем игрока" : "Свободно", rx + 6, ry + 4, Ui.a(l.searching() ? Ui.ACCENT : 0x8A7BA8, 1), false);
+				g.text(this.font, l.searching() ? Tr.s("Ищем игрока", "Looking for a player") : Tr.s("Свободно", "Free"), rx + 6, ry + 4, Ui.a(l.searching() ? Ui.ACCENT : 0x8A7BA8, 1), false);
 			} else {
 				if (s.leader()) {
 					g.fill(rx + 3, ry + 2, rx + 15, ry + 14, Ui.a(Ui.YELLOW, 1));
@@ -253,13 +254,13 @@ public final class PartyScreen extends Screen {
 				// The whole name comes first: "leader" stays in the note only while there is room.
 				String state = slotNote(s, l.searching());
 				if (this.font.width(s.name()) > RiftHud.nameRoom(RIGHT_W, 18, this.font.width(state))) {
-					state = s.ready() ? "ГОТОВ" : "НЕ ГОТОВ";
+					state = s.ready() ? Tr.s("ГОТОВ", "READY") : Tr.s("НЕ ГОТОВ", "NOT READY");
 				}
 				g.text(this.font, this.font.plainSubstrByWidth(s.name(), RiftHud.nameRoom(RIGHT_W, 18, this.font.width(state))), rx + 18, ry + 4, 0xFFFFFFFF, false);
 				g.text(this.font, state, rx + RIGHT_W - 4 - this.font.width(state), ry + 4, Ui.a(s.ready() ? 0xBBF7D0 : Ui.MUTED, 1), false);
 			}
 		}
-		Ui.label(g, this.font, "ОТРЯД", rx, ry - 9, 0xB9A9D6);
+		Ui.label(g, this.font, Tr.s("ОТРЯД", "PARTY"), rx, ry - 9, 0xB9A9D6);
 
 		super.extractRenderState(g, mouseX, mouseY, partialTick);
 		RiftNotice.draw(g, this.font, this.width, 50);

@@ -1,5 +1,6 @@
 package pro.minehouse.menu.mixin;
 
+import pro.minehouse.menu.Tr;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
@@ -126,17 +127,17 @@ public abstract class TitleScreenMixin extends Screen {
 		this.removeWidget(realms);
 		int row3 = realmsY;
 		List<Button> links = new ArrayList<>();
-		links.add(Button.builder(Component.literal("Сайт"), ConfirmLinkScreen.confirmLink(this, URI.create(MenuConfig.siteUrl), true)).build());
+		links.add(Button.builder(Component.literal(Tr.s("Сайт", "Website")), ConfirmLinkScreen.confirmLink(this, URI.create(MenuConfig.siteUrl), true)).build());
 		if (!MenuConfig.discordUrl.isEmpty()) {
 			links.add(Button.builder(Component.literal("Discord"), ConfirmLinkScreen.confirmLink(this, URI.create(MenuConfig.discordUrl), true)).build());
 		}
 		Intro.Meta intro = Intro.meta();
 		if (intro != null) {
-			links.add(Button.builder(Component.literal("Интро"), b -> this.minecraft.gui.setScreen(new IntroScreen(this, intro, true))).build());
+			links.add(Button.builder(Component.literal(Tr.s("Интро", "Intro")), b -> this.minecraft.gui.setScreen(new IntroScreen(this, intro, true))).build());
 		}
 		if (PackUpdater.managed()) {
-			links.add(Button.builder(Component.literal("Моды"), b -> this.minecraft.gui.setScreen(new PackModsScreen(this)))
-				.tooltip(Tooltip.create(Component.literal("Какие моды сборки включены")))
+			links.add(Button.builder(Component.literal(Tr.s("Моды", "Mods")), b -> this.minecraft.gui.setScreen(new PackModsScreen(this)))
+				.tooltip(Tooltip.create(Component.literal(Tr.s("Какие моды сборки включены", "Which modpack mods are on"))))
 				.build());
 		}
 		int w = (200 - 4 * (links.size() - 1)) / links.size();
@@ -184,13 +185,13 @@ public abstract class TitleScreenMixin extends Screen {
 			return;
 		}
 		String version = PackUpdater.localVersion().isEmpty() ? MenuConfig.packVersion : PackUpdater.localVersion();
-		String pack = "Сборка MineHouse" + (version.isEmpty() ? "" : " " + version);
+		String pack = (PackUpdater.standalone() ? Tr.s("Мод MineHouse", "MineHouse mod") : Tr.s("Сборка MineHouse", "MineHouse modpack")) + (version.isEmpty() ? "" : " " + version);
 		graphics.text(this.font, pack, 2, 2, ARGB.color(255, ACCENT));
 		String update = switch (PackUpdater.phase()) {
-			case CHECKING -> "Проверяю обновления…";
-			case DOWNLOADING -> "Скачиваю обновление " + PackUpdater.remoteVersion() + ": " + PackUpdater.done() + " из " + PackUpdater.total();
-			case READY -> "Обновление " + PackUpdater.remoteVersion() + " скачано, перезапусти игру";
-			case FAILED -> "Не удалось обновить сборку";
+			case CHECKING -> Tr.s("Проверяю обновления…", "Checking for updates…");
+			case DOWNLOADING -> Tr.s("Скачиваю обновление ", "Downloading update ") + PackUpdater.remoteVersion() + ": " + PackUpdater.done() + Tr.s(" из ", " of ") + PackUpdater.total();
+			case READY -> Tr.s("Обновление ", "Update ") + PackUpdater.remoteVersion() + Tr.s(" скачано, перезапусти игру", " downloaded, restart the game");
+			case FAILED -> PackUpdater.standalone() ? Tr.s("Не удалось обновить мод MineHouse", "Couldn't update the MineHouse mod") : Tr.s("Не удалось обновить сборку", "Couldn't update the modpack");
 			default -> null;
 		};
 		if (update != null) {

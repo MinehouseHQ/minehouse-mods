@@ -1,5 +1,6 @@
 package pro.minehouse.riftclient;
 
+import pro.minehouse.menu.Tr;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -20,7 +21,7 @@ import pro.minehouse.riftclient.mixin.HudAccess;
  * ("Перезапуск через 3:45"), so it works on every MineHouse server without anything new from it.
  */
 public final class RiftRestart {
-	static final Pattern CLOCK = Pattern.compile("Перезапуск(?: сервера)? через (?:(\\d+):)?(\\d+):(\\d\\d)");
+	static final Pattern CLOCK = Pattern.compile("(?:Перезапуск(?: сервера)? через|(?:Server )?[Rr]estart in) (?:(\\d+):)?(\\d+):(\\d\\d)");
 	/** The world fades out over this many last seconds. */
 	static final float FADE = 3;
 	static final String LIMBO_LINE = "Вернём тебя на сервер";
@@ -130,13 +131,13 @@ public final class RiftRestart {
 			return;
 		}
 		int cy = h / 2 - 14;
-		String plate = "перезапуск сервера · play.minehouse.pro";
+		String plate = Tr.s("перезапуск сервера · play.minehouse.pro", "server restart · play.minehouse.pro");
 		int pw = font.width(plate) + 22;
 		Ui.panel(g, w / 2 - pw / 2, cy - 30, pw, 13, 0x18181B, 0.9f * a);
 		boolean lit = (System.currentTimeMillis() / 700) % 2 == 0;
 		g.fill(w / 2 - pw / 2 + 6, cy - 25, w / 2 - pw / 2 + 9, cy - 22, Ui.ink(lit ? Ui.YELLOW : 0x7A6510, a));
 		g.text(font, plate, w / 2 - pw / 2 + 14, cy - 27, Ui.ink(0xE4E4E7, a), false);
 		Ui.big(g, font, Component.literal("MINEHOUSE").withStyle(Style.EMPTY.withBold(true)), w / 2, cy - 8, 4f, Ui.ink(Ui.WHITE, a), 1);
-		g.centeredText(font, "Вернём тебя на сервер автоматически, выходить не нужно.", w / 2, cy + 36, Ui.ink(0xD4D4D8, a));
+		g.centeredText(font, Tr.s("Вернём тебя на сервер автоматически, выходить не нужно.", "We'll bring you back to the server automatically, no need to leave."), w / 2, cy + 36, Ui.ink(0xD4D4D8, a));
 	}
 }

@@ -2,6 +2,7 @@ package pro.minehouse.menu;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.annotations.SerializedName;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -26,6 +27,8 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
 import net.fabricmc.loader.api.FabricLoader;
+import net.fabricmc.loader.api.ModContainer;
+import net.fabricmc.loader.api.metadata.ModOrigin;
 
 /**
  * Keeps the modpack in sync with the site, in any launcher.
@@ -45,6 +48,13 @@ import net.fabricmc.loader.api.FabricLoader;
  * the MineHouse launcher. An optional mod the player deleted or swapped for
  * another file counts as turned off and is not downloaded again; a required
  * file always comes back. {@link PackModsScreen} changes the choice in game.
+ *
+ * The mod alone: a player who dropped minehouse-client.jar into their own
+ * instance by hand has no config/minehouse-pack.json. Then only our jar is kept
+ * up to date, like Essential does: the same check before launch and the same
+ * window, but the manifest is cut down to mods/minehouse-client.jar, the jar
+ * goes where the player's copy is (any old name is removed after exit), and no
+ * state file is written, so the rest of the pack never gets installed.
  */
 public final class PackUpdater {
 	public enum Phase { IDLE, CHECKING, UP_TO_DATE, DOWNLOADING, READY, FAILED }
@@ -57,7 +67,9 @@ public final class PackUpdater {
 	public record Option(String id, String name, String why, List<String> requires) {
 	}
 
-	public record Manifest(String version, List<PackFile> files, List<Option> options) {
+	/** `minecraft` and `client_version` (our jar's version) are absent in manifests before pack 1.33.0. */
+	public record Manifest(String version, String minecraft, @SerializedName("client_version") String clientVersion,
+		List<PackFile> files, List<Option> options) {
 		List<Option> optionList() {
 			return options == null ? List.of() : options;
 		}
@@ -98,6 +110,13 @@ public final class PackUpdater {
 	private static volatile boolean changed;
 	/** The pre-launch check already brought the pack up to date (or scheduled it): no background run. */
 	private static volatile boolean checkedBeforeLaunch;
+	/** Our jar was installed by hand, without the pack: only it is updated, see the class comment. */
+	private static volatile boolean standalone;
+	/** That jar, relative to the game dir (standalone only). */
+	private static String ownJar;
+
+	/** Where the pack puts our jar; the manifest entry the mod alone updates from. */
+	static final String CLIENT_JAR = "mods/minehouse-client.jar";
 
 	private PackUpdater() {
 	}
@@ -138,7 +157,12 @@ public final class PackUpdater {
 
 	/** False when the game was not installed from our pack (no state file): nothing to choose. */
 	public static boolean managed() {
-		return installedState != null;
+		return installedState != null && !standalone;
+	}
+
+	/** Only our mod is kept up to date (installed by hand, without the pack). */
+	public static boolean standalone() {
+		return standalone;
 	}
 
 	private static Path gameDir() {
@@ -155,9 +179,12 @@ public final class PackUpdater {
 		}
 		State state = readState();
 		if (state == null) {
-			// Not installed from our pack (e.g. a dev run): nothing to keep in sync.
-			MinehouseMenu.LOG.info("No config/minehouse-pack.json, auto-update is off");
-			return;
+			state = standaloneState();
+			if (state == null) {
+				// Not installed from our pack, and not our jar either (a dev run): nothing to keep in sync.
+				MinehouseMenu.LOG.info("No config/minehouse-pack.json and no MineHouse jar in the game dir, auto-update is off");
+				return;
+			}
 		}
 		installedState = state;
 		disabledNow = state.disabledSet();
@@ -201,6 +228,7 @@ public final class PackUpdater {
 		return fetchManifest(Duration.ofSeconds(20));
 	}
 
+	/** The site's manifest; for the mod alone, cut down to our jar (null: nothing to update). */
 	private static Manifest fetchManifest(Duration timeout) throws Exception {
 		HttpResponse<String> res = HTTP.send(
 			HttpRequest.newBuilder(URI.create(MenuConfig.updateUrl)).timeout(timeout).GET().build(),
@@ -209,7 +237,111 @@ public final class PackUpdater {
 		if (res.statusCode() != 200) {
 			throw new IOException("manifest: HTTP " + res.statusCode());
 		}
-		return GSON.fromJson(res.body(), Manifest.class);
+		Manifest m = GSON.fromJson(res.body(), Manifest.class);
+		return standalone ? forMod(m, ownJar) : m;
+	}
+
+	// ---- the mod alone ---------------------------------------------------------
+
+	/**
+	 * A state for our jar installed by hand: it is the only file "installed", so
+	 * {@link #plan} replaces it and deletes nothing else. Null when there is no
+	 * such jar (a dev run, our mod nested in another jar, or outside the game dir).
+	 */
+	private static State standaloneState() {
+		ModContainer self = FabricLoader.getInstance().getModContainer("minehouse-client").orElse(null);
+		if (self == null) {
+			return null;
+		}
+		String rel = jarIn(gameDir(), self.getOrigin());
+		if (rel == null) {
+			return null;
+		}
+		standalone = true;
+		ownJar = rel;
+		MinehouseMenu.LOG.info("MineHouse installed without the pack ({}), keeping just the mod up to date", rel);
+		return new State(self.getMetadata().getVersion().getFriendlyString(), List.of(rel), List.of(), Map.of());
+	}
+
+	/** A plain jar the mod was loaded from, relative to the game dir; else null. */
+	static String jarIn(Path gameDir, ModOrigin origin) {
+		if (origin.getKind() != ModOrigin.Kind.PATH || origin.getPaths().size() != 1) {
+			return null;
+		}
+		Path root = gameDir.toAbsolutePath().normalize();
+		Path jar = origin.getPaths().get(0).toAbsolutePath().normalize();
+		if (!jar.getFileName().toString().endsWith(".jar") || !Files.isRegularFile(jar) || !jar.startsWith(root)) {
+			return null;
+		}
+		return root.relativize(jar).toString().replace('\\', '/');
+	}
+
+	/**
+	 * The manifest as the mod alone sees it: just our jar, placed next to the
+	 * player's copy as minehouse-client.jar. Null when the site's jar is for
+	 * another Minecraft version, or the manifest has no jar. When the site's
+	 * version is not newer than ours (a test build), the entry is our own file,
+	 * so there is nothing to do.
+	 */
+	static Manifest forMod(Manifest m, String own) throws IOException {
+		String running = FabricLoader.getInstance().getModContainer("minecraft")
+			.map(c -> c.getMetadata().getVersion().getFriendlyString()).orElse("");
+		if (!sameMinecraft(m.minecraft(), running)) {
+			MinehouseMenu.LOG.info("The site's MineHouse is for Minecraft {}, this is {}: not updating", m.minecraft(), running);
+			return null;
+		}
+		PackFile jar = m.files().stream().filter(f -> CLIENT_JAR.equals(f.path())).findFirst().orElse(null);
+		if (jar == null) {
+			return null;
+		}
+		String local = installedState == null ? "" : installedState.version();
+		String remote = m.clientVersion() == null ? "" : m.clientVersion();
+		PackFile file;
+		if (!remote.isEmpty() && !newer(remote, local)) {
+			Path ownPath = gameDir().toAbsolutePath().normalize().resolve(own);
+			file = new PackFile(own, jar.url(), sha512(ownPath), Files.size(ownPath), null, null);
+		} else {
+			int slash = own.lastIndexOf('/');
+			String target = (slash < 0 ? "" : own.substring(0, slash + 1)) + "minehouse-client.jar";
+			file = new PackFile(target, jar.url(), jar.sha512(), jar.size(), null, null);
+		}
+		return new Manifest(remote.isEmpty() ? m.version() : remote, m.minecraft(), m.clientVersion(), List.of(file), List.of());
+	}
+
+	/** The site's Minecraft (e.g. 26.3) fits the running one (26.3 or 26.3.x); unknown fits anything. */
+	static boolean sameMinecraft(String site, String running) {
+		return site == null || site.isEmpty() || running.isEmpty() || running.equals(site) || running.startsWith(site + ".");
+	}
+
+	/** `a` is a newer version than `b` (dotted numbers; anything unparsable counts as newer, like a changed hash). */
+	static boolean newer(String a, String b) {
+		int[] x = parse(a);
+		int[] y = parse(b);
+		if (x == null || y == null) {
+			return !a.equals(b);
+		}
+		for (int i = 0; i < Math.max(x.length, y.length); i++) {
+			int p = i < x.length ? x[i] : 0;
+			int q = i < y.length ? y[i] : 0;
+			if (p != q) {
+				return p > q;
+			}
+		}
+		return false;
+	}
+
+	private static int[] parse(String v) {
+		String core = v.split("[-+]", 2)[0];
+		String[] parts = core.split("\\.");
+		int[] out = new int[parts.length];
+		try {
+			for (int i = 0; i < parts.length; i++) {
+				out[i] = Integer.parseInt(parts[i]);
+			}
+		} catch (NumberFormatException e) {
+			return null;
+		}
+		return parts.length == 0 ? null : out;
 	}
 
 	/** Options that end up on: not turned off, and everything they require is on. */
@@ -319,6 +451,9 @@ public final class PackUpdater {
 	}
 
 	private static void saveState(State next, State state) throws IOException {
+		if (standalone) {
+			return; // a state file would make this a pack install: the next run would add every pack mod
+		}
 		if (!GSON.toJson(next).equals(GSON.toJson(state))) {
 			Files.writeString(stateFile(), GSON.toJson(next), StandardCharsets.UTF_8);
 			installedState = next;
@@ -336,6 +471,10 @@ public final class PackUpdater {
 			manifest = fetchManifest();
 		}
 		Manifest m = manifest;
+		if (m == null) {
+			phase = Phase.UP_TO_DATE; // the mod alone, and the site has nothing for this game
+			return;
+		}
 		State state = installedState;
 		remoteVersion = m.version();
 		Work w = plan(m, state, chosen);
@@ -376,9 +515,11 @@ public final class PackUpdater {
 			done++;
 		}
 
-		Path nextState = stateFile().resolveSibling("minehouse-pack.json.mhnew");
-		Files.writeString(nextState, GSON.toJson(w.next()), StandardCharsets.UTF_8);
-		moves.add(new UpdateApplier.Move(nextState.toString(), stateFile().toString()));
+		if (!standalone) {
+			Path nextState = stateFile().resolveSibling("minehouse-pack.json.mhnew");
+			Files.writeString(nextState, GSON.toJson(w.next()), StandardCharsets.UTF_8);
+			moves.add(new UpdateApplier.Move(nextState.toString(), stateFile().toString()));
+		}
 
 		UpdateApplier.scheduleOnExit(new UpdateApplier.Plan(moves, w.deletes(), null, null));
 		changed = true;
@@ -389,7 +530,7 @@ public final class PackUpdater {
 
 	/** Files the running game has loaded: they can only be swapped after it exits. */
 	private static boolean loaded(String path) {
-		return path.startsWith("mods/");
+		return path.startsWith("mods/") || path.endsWith(".jar");
 	}
 
 	/**
@@ -403,9 +544,15 @@ public final class PackUpdater {
 	 * the background update in {@link #start()}.
 	 */
 	static void preLaunch() {
-		State state = readState();
-		if (state == null || MenuConfig.updateUrl.isEmpty()) {
+		if (MenuConfig.updateUrl.isEmpty()) {
 			return;
+		}
+		State state = readState();
+		if (state == null) {
+			state = standaloneState();
+			if (state == null) {
+				return;
+			}
 		}
 		installedState = state;
 		disabledNow = state.disabledSet();
@@ -418,6 +565,11 @@ public final class PackUpdater {
 			return;
 		}
 		manifest = m;
+		if (m == null) {
+			phase = Phase.UP_TO_DATE; // the mod alone, and the site has nothing for this game
+			checkedBeforeLaunch = true;
+			return;
+		}
 		remoteVersion = m.version();
 		try {
 			Work w = plan(m, state, null);
@@ -443,7 +595,8 @@ public final class PackUpdater {
 			Path job = Files.createTempDirectory("minehouse-update").resolve("job.txt");
 			StringBuilder sb = new StringBuilder();
 			sb.append(state.version()).append('\t').append(m.version()).append('\t')
-				.append(restart ? (relaunch != null ? "relaunch" : "restart") : "none").append('\n');
+				.append(restart ? (relaunch != null ? "relaunch" : "restart") : "none")
+				.append('\t').append(standalone ? "mod" : "pack").append('\n');
 			for (PackFile f : w.download()) {
 				Files.createDirectories(tmpFor(f).getParent());
 				sb.append(f.url()).append('\t').append(f.sha512()).append('\t').append(f.size()).append('\t')
@@ -486,9 +639,11 @@ public final class PackUpdater {
 				MinehouseMenu.LOG.info("Modpack {} -> {} applied before launch", state.version(), m.version());
 				return;
 			}
-			Path nextState = stateFile().resolveSibling("minehouse-pack.json.mhnew");
-			Files.writeString(nextState, GSON.toJson(w.next()), StandardCharsets.UTF_8);
-			later.add(new UpdateApplier.Move(nextState.toString(), stateFile().toString()));
+			if (!standalone) {
+				Path nextState = stateFile().resolveSibling("minehouse-pack.json.mhnew");
+				Files.writeString(nextState, GSON.toJson(w.next()), StandardCharsets.UTF_8);
+				later.add(new UpdateApplier.Move(nextState.toString(), stateFile().toString()));
+			}
 			Files.writeString(marker, Long.toString(System.currentTimeMillis()), StandardCharsets.UTF_8);
 			boolean now = code == UpdateWindow.DONE;
 			UpdateApplier.scheduleOnExit(new UpdateApplier.Plan(later, deletesLater,

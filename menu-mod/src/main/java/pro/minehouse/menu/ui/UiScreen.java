@@ -1,0 +1,823 @@
+package pro.minehouse.menu.ui;
+
+import java.net.URI;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.IdentityHashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.joml.Vector3fc;
+
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+
+import net.minecraft.client.Camera;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.screens.ConfirmLinkScreen;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.client.renderer.item.ItemStackRenderState;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.resources.Identifier;
+import net.minecraft.util.FormattedCharSequence;
+import net.minecraft.util.Mth;
+import net.minecraft.world.item.ItemDisplayContext;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.component.CustomModelData;
+import net.minecraft.world.item.component.DyedItemColor;
+import net.minecraft.world.phys.Vec3;
+
+import pro.minehouse.menu.ui.UiTree.Node;
+import pro.minehouse.menu.ui.UiTree.Theme;
+import pro.minehouse.menu.wardrobe.Fitting;
+import pro.minehouse.menu.wardrobe.WardrobePreview;
+
+/**
+ * A window the server described (see {@link UiNet}), drawn in the MineHouse style: floating zinc
+ * cards with the Minecraft font, as the wardrobe of 1.24.0. Updates from the server keep the scroll
+ * positions (by node id). With scene "fitting" the camera stands in front of the player in the
+ * world, the panels hang beside them and dragging turns them round.
+ */
+public final class UiScreen extends Screen implements Fitting {
+	private static final Identifier COIN = Identifier.fromNamespaceAndPath("minehouse-menu", "textures/gui/coin.png");
+	private static final int EDGE = 8;
+
+	private record Panel(String at, int width, Node node) {
+	}
+
+	private record Marker(String at, boolean active, String tooltip, JsonObject click) {
+	}
+
+	private JsonObject json;
+	private String id;
+	private int rev;
+	private String scene;
+	private final List<Panel> panels = new ArrayList<>();
+	private final List<Marker> markers = new ArrayList<>();
+	private int linkFrom = -1;
+	private String linkTo;
+	private final List<String[]> hints = new ArrayList<>();
+	private final Map<String, String> wear = new HashMap<>();
+	private final Map<String, Integer> tint = new HashMap<>();
+
+	/** Grid scroll by node id, kept across updates. */
+	private final Map<String, Double> scrolls = new HashMap<>();
+	private final Map<String, ItemStackRenderState> models = new HashMap<>();
+	private final Map<String, ItemStack> items = new HashMap<>();
+	private final Map<Node, Integer> grids = new IdentityHashMap<>();
+
+	private float previewYaw = 20;
+	private boolean dragging;
+	private Boolean hudWasHidden;
+	private boolean confirmingLink;
+	private boolean closedByServer;
+	private int[] markerXY = new int[0];
+	private int barX0, barY0, barX1, barY1;
+
+	UiScreen(JsonObject json) {
+		super(Component.literal(UiTree.str(json, "title", "")));
+		read(json);
+	}
+
+	String id() {
+		return id;
+	}
+
+	void update(JsonObject json) {
+		read(json);
+	}
+
+	private void read(JsonObject json) {
+		this.json = json;
+		id = UiTree.str(json, "id", "");
+		rev = UiTree.num(json, "rev", 0);
+		scene = UiTree.str(json, "scene", "dim");
+		panels.clear();
+		markers.clear();
+		hints.clear();
+		wear.clear();
+		tint.clear();
+		for (JsonElement e : array(json, "panels")) {
+			if (!e.isJsonObject()) continue;
+			JsonObject p = e.getAsJsonObject();
+			JsonObject node = p.has("node") && p.get("node").isJsonObject() ? p.getAsJsonObject("node") : new JsonObject();
+			panels.add(new Panel(UiTree.str(p, "at", "center"), UiTree.num(p, "w", 160), UiTree.parse(node)));
+		}
+		for (JsonElement e : array(json, "markers")) {
+			if (!e.isJsonObject()) continue;
+			JsonObject m = e.getAsJsonObject();
+			markers.add(new Marker(UiTree.str(m, "at", "head"), m.has("active") && m.get("active").getAsBoolean(),
+					UiTree.str(m, "tooltip", null), m.has("click") && m.get("click").isJsonObject() ? m.getAsJsonObject("click") : null));
+		}
+		JsonObject link = json.has("link") && json.get("link").isJsonObject() ? json.getAsJsonObject("link") : null;
+		linkFrom = link == null ? -1 : UiTree.num(link, "from", -1);
+		linkTo = link == null ? null : UiTree.str(link, "to", null);
+		for (JsonElement e : array(json, "hints")) {
+			if (e.isJsonArray() && e.getAsJsonArray().size() >= 2) {
+				hints.add(new String[] {e.getAsJsonArray().get(0).getAsString(), e.getAsJsonArray().get(1).getAsString()});
+			}
+		}
+		JsonObject preview = json.has("preview") && json.get("preview").isJsonObject() ? json.getAsJsonObject("preview") : null;
+		if (preview != null) {
+			if (preview.has("wear") && preview.get("wear").isJsonObject()) {
+				preview.getAsJsonObject("wear").entrySet().forEach(en -> wear.put(en.getKey(), en.getValue().getAsString()));
+			}
+			if (preview.has("tint") && preview.get("tint").isJsonObject()) {
+				preview.getAsJsonObject("tint").entrySet().forEach(en -> tint.put(en.getKey(), en.getValue().getAsInt()));
+			}
+		}
+	}
+
+	private static JsonArray array(JsonObject o, String key) {
+		return o.has(key) && o.get(key).isJsonArray() ? o.getAsJsonArray(key) : new JsonArray();
+	}
+
+	// ------------------------------------------------------------------ Fitting
+
+	@Override
+	public boolean fittingScene() {
+		return "fitting".equals(scene) && minecraft != null && minecraft.player != null;
+	}
+
+	@Override
+	public Map<String, String> trying() {
+		return wear;
+	}
+
+	@Override
+	public float previewYaw() {
+		return previewYaw;
+	}
+
+	@Override
+	public Integer tint(String id) {
+		return tint.get(id);
+	}
+
+	// ------------------------------------------------------------------ lifecycle
+
+	@Override
+	public void added() {
+		super.added();
+		confirmingLink = false;
+		if (fittingScene()) {
+			hudWasHidden = minecraft.gui.hud.isHidden();
+			if (!hudWasHidden) minecraft.gui.hud.toggle();
+		}
+	}
+
+	@Override
+	public void removed() {
+		if (!confirmingLink && !closedByServer) {
+			JsonObject msg = new JsonObject();
+			msg.addProperty("window", id);
+			msg.addProperty("closed", true);
+			UiNet.send(msg);
+		}
+		if (hudWasHidden != null && !hudWasHidden && minecraft.gui.hud.isHidden()) minecraft.gui.hud.toggle();
+		hudWasHidden = null;
+		super.removed();
+	}
+
+	void closeByServer() {
+		closedByServer = true;
+		onClose();
+	}
+
+	@Override
+	public boolean isPauseScreen() {
+		return false;
+	}
+
+	@Override
+	public void extractBackground(GuiGraphicsExtractor g, int mouseX, int mouseY, float a) {
+		if ("dim".equals(scene)) super.extractBackground(g, mouseX, mouseY, a);
+	}
+
+	// ------------------------------------------------------------------ layout
+
+	private UiTree tree(boolean tall) {
+		Font f = font;
+		return new UiTree(new UiTree.Measure() {
+			@Override
+			public int width(String text, boolean bold) {
+				return f.width(styled(text, bold));
+			}
+
+			@Override
+			public List<String> wrap(String text, boolean bold, int width) {
+				List<String> out = new ArrayList<>();
+				for (var line : f.getSplitter().splitLines(styled(text, bold), width, net.minecraft.network.chat.Style.EMPTY)) {
+					out.add(line.getString());
+				}
+				return out.isEmpty() ? List.of("") : out;
+			}
+		}, tall);
+	}
+
+	private UiTree layout(float partial) {
+		UiTree tree = tree(true);
+		if (!place(tree, partial)) {
+			tree = tree(false);
+			place(tree, partial);
+		}
+		return tree;
+	}
+
+	/** Lays the panels out and places them; false if one doesn't fit the screen's height. */
+	private boolean place(UiTree tree, float partial) {
+		int[] center = {width / 2, height / 2};
+		int[] left = null;
+		int[] right = null;
+		markerXY = new int[markers.size() * 2];
+		if (fittingScene()) {
+			Vec3 feet = minecraft.player.getPosition(partial);
+			Camera cam = minecraft.gameRenderer.mainCamera();
+			Vector3fc l = cam.leftVector();
+			Vec3 side = new Vec3(l.x(), 0, l.z()).normalize();
+			left = project(feet.add(0, 1.05, 0).add(side.scale(1.15)));
+			right = project(feet.add(0, 1.05, 0).subtract(side.scale(1.15)));
+			for (int i = 0; i < markers.size(); i++) {
+				int[] p = project(markerPoint(markers.get(i).at(), feet, cam, side));
+				if (p == null) p = new int[] {center[0], center[1] - 40};
+				markerXY[i * 2] = p[0];
+				markerXY[i * 2 + 1] = p[1];
+			}
+		}
+		boolean fits = true;
+		int bottom = hints.isEmpty() ? EDGE : 40;
+		int stackLeft = EDGE;
+		int stackRight = EDGE;
+		int centerW = 0;
+		for (Panel p : panels) {
+			if (p.at().equals("center")) centerW += p.width() + (centerW > 0 ? EDGE : 0);
+		}
+		int cx = center[0] - centerW / 2;
+		for (Panel p : panels) {
+			int w = Math.min(p.width(), width - EDGE * 2);
+			int h = tree.layout(p.node(), 0, 0, w);
+			if (h > height - bottom - EDGE) fits = false;
+			int x;
+			int y;
+			switch (p.at()) {
+				case "player_left" -> {
+					x = left == null ? center[0] - 70 - w : left[0] - w;
+					x = Mth.clamp(x, EDGE, Math.max(EDGE, center[0] - 46 - w));
+					y = Mth.clamp((left == null ? center[1] : left[1]) - h / 2, EDGE, Math.max(EDGE, height - bottom - h));
+				}
+				case "player_right" -> {
+					x = right == null ? center[0] + 70 : right[0];
+					x = Mth.clamp(x, Math.min(width - EDGE - w, center[0] + 46), width - EDGE - w);
+					y = Mth.clamp((right == null ? center[1] : right[1]) - h / 2 + 12, EDGE, Math.max(EDGE, height - bottom - h));
+				}
+				case "left" -> {
+					x = EDGE;
+					y = stackLeft;
+					stackLeft += h + EDGE;
+				}
+				case "right" -> {
+					x = width - EDGE - w;
+					y = stackRight;
+					stackRight += h + EDGE;
+				}
+				case "top" -> {
+					x = center[0] - w / 2;
+					y = EDGE;
+				}
+				case "bottom" -> {
+					x = center[0] - w / 2;
+					y = height - bottom - h;
+				}
+				default -> {
+					x = cx;
+					cx += w + EDGE;
+					y = Math.max(EDGE, (height - bottom - h) / 2);
+				}
+			}
+			UiTree.shift(p.node(), x, y);
+		}
+		// Grids: scroll (clamped) and remember which nodes they are.
+		grids.clear();
+		for (Panel p : panels) scrollGrids(p.node());
+		return fits;
+	}
+
+	private void scrollGrids(Node n) {
+		if (n.type.equals("grid")) {
+			double s = Mth.clamp(scrolls.getOrDefault(key(n), 0.0), 0, n.maxScroll);
+			scrolls.put(key(n), s);
+			grids.put(n, (int) s);
+			for (Node c : n.children) UiTree.shift(c, 0, -(int) s);
+		}
+		for (Node c : n.children) scrollGrids(c);
+	}
+
+	private static String key(Node n) {
+		return n.id != null ? n.id : "";
+	}
+
+	private static Vec3 markerPoint(String at, Vec3 feet, Camera cam, Vec3 side) {
+		if (at.equals("back")) {
+			// Facing the camera, the back is behind the body: its dot goes to the shoulder.
+			Minecraft mc = Minecraft.getInstance();
+			UiScreen screen = mc.gui.screen() instanceof UiScreen s ? s : null;
+			double bodyYaw = Math.toRadians(mc.player.getYRot() + (screen == null ? 0 : screen.previewYaw));
+			Vec3 front = new Vec3(-Math.sin(bodyYaw), 0, Math.cos(bodyYaw));
+			Vec3 toCam = cam.position().subtract(feet);
+			if (front.dot(new Vec3(toCam.x, 0, toCam.z).normalize()) > 0.3) {
+				return feet.add(0, 1.3, 0).subtract(front.scale(0.2)).subtract(side.scale(0.42));
+			}
+			return feet.add(0, 1.12, 0).subtract(front.scale(0.28));
+		}
+		if (at.equals("feet")) return feet.add(0, 0.1, 0);
+		return feet.add(0, 1.78, 0);
+	}
+
+	/** Where a world point is on the screen (GUI pixels), or null if it is behind the camera. */
+	private int[] project(Vec3 p) {
+		Camera cam = minecraft.gameRenderer.mainCamera();
+		Vec3 v = p.subtract(cam.position());
+		Vector3fc f = cam.forwardVector();
+		Vector3fc u = cam.upVector();
+		Vector3fc l = cam.leftVector();
+		double z = v.x * f.x() + v.y * f.y() + v.z * f.z();
+		if (z < 0.05) return null;
+		double x = -(v.x * l.x() + v.y * l.y() + v.z * l.z());
+		double y = v.x * u.x() + v.y * u.y() + v.z * u.z();
+		double k = (height / 2.0) / Math.tan(Math.toRadians(cam.getFov()) / 2);
+		return new int[] {(int) Math.round(width / 2.0 + x / z * k), (int) Math.round(height / 2.0 - y / z * k)};
+	}
+
+	// ------------------------------------------------------------------ drawing
+
+	private UiTree current;
+
+	@Override
+	public void extractRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float a) {
+		super.extractRenderState(g, mouseX, mouseY, a);
+		current = layout(a);
+		if (fittingScene()) drawMarkers(g, mouseX, mouseY);
+		float time = (minecraft.level != null ? minecraft.level.getGameTime() : System.currentTimeMillis() / 50f) + a;
+		for (Panel p : panels) {
+			Node n = p.node();
+			card(g, n.x, n.y, n.x + n.w, n.y + n.h, color(n, "bg", Theme.CARD), color(n, "border", Theme.BORDER));
+			draw(g, n, mouseX, mouseY, time, false, null);
+		}
+		drawHints(g);
+		Node tip = find(mouseX, mouseY, n -> tooltip(n) != null);
+		if (tip != null) g.setTooltipForNextFrame(font, Component.literal(tooltip(tip)), mouseX, mouseY);
+	}
+
+	/** A node's tooltip; a tab shown as an icon only gets its name. */
+	private String tooltip(Node n) {
+		String tip = n.str("tooltip");
+		if (tip != null || !n.type.equals("tab")) return tip;
+		return n.flag("active") && labelledTab(n) ? null : n.str("text");
+	}
+
+	private boolean labelledTab(Node tab) {
+		for (Panel p : panels) {
+			Node tabs = parentOf(p.node(), tab);
+			if (tabs != null) return current.labelled(tabs, tab);
+		}
+		return false;
+	}
+
+	private static Node parentOf(Node n, Node child) {
+		for (Node c : n.children) {
+			if (c == child) return n;
+			Node found = parentOf(c, child);
+			if (found != null) return found;
+		}
+		return null;
+	}
+
+	private int color(Node n, String key, int fallback) {
+		return UiTree.color(n.str(key), fallback);
+	}
+
+	/** @param hot the card around is hovered or selected (models turn) */
+	private void draw(GuiGraphicsExtractor g, Node n, int mx, int my, float time, boolean hot, int[] clip) {
+		boolean hover = n.over(mx, my) && (clip == null || inside(clip, mx, my));
+		switch (n.type) {
+			case "card" -> {
+				boolean clickable = n.click() != null;
+				int bg = color(n, "bg", Theme.MUTED_BG);
+				if (clickable && hover) bg = Theme.HOVER_BG;
+				int border = n.flag("selected") ? Theme.ACCENT : color(n, "border", Theme.BORDER);
+				card(g, n.x, n.y, n.x + n.w, n.y + n.h, bg, border);
+				hot = hot || hover || n.flag("selected");
+			}
+			case "col", "row" -> {
+				if (n.str("bg") != null || n.str("border") != null) {
+					card(g, n.x, n.y, n.x + n.w, n.y + n.h, color(n, "bg", 0), color(n, "border", 0));
+				}
+			}
+			case "text" -> text(g, n);
+			case "button" -> button(g, n, hover);
+			case "tabs" -> {
+				tabs(g, n, mx, my);
+				return; // the tabs draw their icons themselves
+			}
+			case "grid" -> {
+				int[] c = {n.x - 1, n.y - 1, n.x + n.w + 1, n.y + n.h};
+				g.enableScissor(c[0], c[1], c[2], c[3]);
+				if (n.children.isEmpty() && n.str("empty") != null) {
+					Component e = Component.literal(n.str("empty"));
+					g.text(font, e, n.x + n.w / 2 - font.width(e) / 2, n.y + Math.min(30, n.h / 2 - 4), Theme.MUTED, false);
+				}
+				for (Node child : n.children) {
+					if (child.y > n.y + n.h || child.y + child.h < n.y) continue;
+					draw(g, child, mx, my, time, hot, c);
+				}
+				g.disableScissor();
+				return;
+			}
+			case "item" -> {
+				ItemStack stack = item(n.str("item", "minecraft:barrier"));
+				g.item(stack, n.x + (n.w - 16) / 2, n.y + (n.h - 16) / 2);
+			}
+			case "model" -> model(g, n, hot, time);
+			case "swatch" -> swatch(g, n, hover);
+			case "divider" -> g.fill(n.x, n.y, n.x + n.w, n.y + 1, color(n, "color", Theme.BORDER));
+			case "image" -> {
+				String tex = n.str("texture");
+				Identifier texture = tex == null ? null : Identifier.tryParse(tex);
+				if (texture != null) g.blit(RenderPipelines.GUI_TEXTURED, texture, n.x, n.y, 0, 0, n.w, n.h, n.w, n.h, n.w, n.h, 0xFFFFFFFF);
+			}
+			default -> {
+			}
+		}
+		for (Node c : n.children) draw(g, c, mx, my, time, hot, clip);
+	}
+
+	private static boolean inside(int[] clip, double mx, double my) {
+		return mx >= clip[0] && mx < clip[2] && my >= clip[1] && my < clip[3];
+	}
+
+	private static MutableComponent styled(String s, boolean bold) {
+		MutableComponent c = Component.literal(s);
+		return bold ? c.withStyle(st -> st.withBold(true)) : c;
+	}
+
+	private void text(GuiGraphicsExtractor g, Node n) {
+		boolean bold = n.flag("bold");
+		int color = color(n, "color", Theme.FG);
+		String align = n.str("align", "left");
+		int y = n.y;
+		for (String line : n.lines) {
+			Component c = styled(line, bold);
+			int w = font.width(c) + (n.flag("coin") ? UiTree.COIN_GAP + UiTree.COIN : 0);
+			int x = align.equals("center") ? n.x + (n.w - w) / 2 : align.equals("right") ? n.x + n.w - w : n.x;
+			g.text(font, c, x, y, color, false);
+			if (n.flag("coin")) coin(g, x + font.width(c) + UiTree.COIN_GAP, y - 1);
+			y += UiTree.LINE;
+		}
+	}
+
+	private void button(GuiGraphicsExtractor g, Node n, boolean hover) {
+		String style = n.str("style", "primary");
+		boolean on = !n.flag("disabled");
+		hover = hover && on;
+		Component label = Component.literal(n.str("text", ""));
+		int fg;
+		switch (style) {
+			case "danger" -> {
+				card(g, n.x, n.y, n.x + n.w, n.y + n.h, hover ? 0x33F87171 : 0, on ? Theme.RED : Theme.DISABLED);
+				fg = on ? Theme.RED : Theme.DISABLED;
+			}
+			case "outline" -> {
+				card(g, n.x, n.y, n.x + n.w, n.y + n.h, hover ? Theme.HOVER_BG : 0, Theme.BORDER);
+				fg = on ? Theme.FG : Theme.DISABLED;
+			}
+			case "ghost" -> {
+				if (hover) card(g, n.x, n.y, n.x + n.w, n.y + n.h, Theme.HOVER_BG, 0);
+				fg = on ? Theme.FG : Theme.DISABLED;
+			}
+			case "link" -> fg = !on ? Theme.DISABLED : hover ? Theme.FG : Theme.ACCENT;
+			default -> {
+				card(g, n.x, n.y, n.x + n.w, n.y + n.h, on ? (hover ? Theme.PRIMARY_HOVER : Theme.PRIMARY) : 0xFF27272A, 0);
+				fg = on ? Theme.ON_PRIMARY : Theme.DISABLED;
+			}
+		}
+		fg = color(n, "color", fg);
+		int w = font.width(label) + (n.flag("coin") ? UiTree.COIN_GAP + UiTree.COIN : 0);
+		int x = style.equals("link") ? n.x + n.w - w - 2 : n.x + (n.w - w) / 2;
+		int y = n.y + (n.h - 8) / 2;
+		g.text(font, label, x, y, fg, false);
+		if (n.flag("coin")) coin(g, x + font.width(label) + UiTree.COIN_GAP, y - 1);
+	}
+
+	private void tabs(GuiGraphicsExtractor g, Node n, int mx, int my) {
+		card(g, n.x, n.y, n.x + n.w, n.y + n.h, Theme.MUTED_BG, 0);
+		Node active = null;
+		for (Node t : n.children) {
+			if (t.flag("active")) active = t;
+		}
+		boolean labelled = current.labelled(n, active);
+		for (int i = 0; i < n.children.size(); i++) {
+			Node t = n.children.get(i);
+			boolean on = t.flag("active");
+			boolean hover = t.over(mx, my);
+			if (on) card(g, t.x, t.y, t.x + t.w, t.y + t.h, 0xFF09090B, 0xFF27272A);
+			else if (hover) card(g, t.x, t.y, t.x + t.w, t.y + t.h, Theme.HOVER_BG, 0);
+			int mid = t.x + t.w / 2;
+			int iy = t.y + (t.h - 16) / 2;
+			ItemStack icon = item(t.str("icon", "minecraft:paper"));
+			Component label = Component.literal(t.str("text", ""));
+			if (on && labelled) {
+				int w = 16 + 3 + font.width(label);
+				int ix = mid - w / 2;
+				g.item(icon, ix, iy);
+				g.text(font, label, ix + 19, iy + 4, Theme.FG, false);
+			} else {
+				g.item(icon, mid - 8, iy);
+			}
+		}
+	}
+
+	private void model(GuiGraphicsExtractor g, Node n, boolean hot, float time) {
+		ItemStackRenderState state = modelState(n);
+		if (state == null) return;
+		String spin = n.str("spin", "hover");
+		float yaw = switch (spin) {
+			case "always" -> time * 4;
+			case "none" -> 35;
+			default -> hot ? time * 4 : 35;
+		};
+		float scale = n.num("scale", (int) (Math.min(n.w, n.h) * 0.875f));
+		g.guiRenderState.addPicturesInPictureState(new WardrobePreview.State(null, 0, state, yaw,
+				n.x + 1, n.y, n.x + n.w - 1, n.y + n.h, scale, g.scissorStack.peek()));
+	}
+
+	private ItemStackRenderState modelState(Node n) {
+		if (!itemsReady()) return null;
+		String model = n.str("model");
+		Identifier modelId = model == null ? null : Identifier.tryParse(model);
+		if (modelId == null) return null;
+		int frames = Math.max(1, n.num("frames", 1));
+		int fps = Mth.clamp(n.num("fps", 20), 1, 20);
+		int frame = frames > 1 ? (int) Math.floorMod(System.currentTimeMillis() * fps / 1000, (long) frames) : -1;
+		Integer rgb = n.json.has("rgb") ? n.num("rgb", 0) : null;
+		ItemDisplayContext context = switch (n.str("context", "head")) {
+			case "fixed" -> ItemDisplayContext.FIXED;
+			case "gui" -> ItemDisplayContext.GUI;
+			default -> ItemDisplayContext.HEAD;
+		};
+		String k = model + "#" + rgb + "#" + frame + "#" + context;
+		return models.computeIfAbsent(k, x -> {
+			ItemStack stack = new ItemStack(Items.PAPER);
+			stack.set(DataComponents.ITEM_MODEL, modelId);
+			if (rgb != null) stack.set(DataComponents.DYED_COLOR, new DyedItemColor(rgb));
+			if (frame >= 0) stack.set(DataComponents.CUSTOM_MODEL_DATA, new CustomModelData(List.of(), List.of(), List.of("f" + frame), List.of()));
+			ItemStackRenderState out = new ItemStackRenderState();
+			minecraft.getItemModelResolver().updateForTopItem(out, stack, context, minecraft.level, null, 0);
+			return out;
+		});
+	}
+
+	/** Item stacks can be made only once the game has bound item components (in a world; not on the title screen). */
+	private static boolean itemsReady() {
+		return Items.PAPER.builtInRegistryHolder().areComponentsBound();
+	}
+
+	private ItemStack item(String id) {
+		if (!itemsReady()) return ItemStack.EMPTY;
+		return items.computeIfAbsent(id, k -> {
+			Identifier i = Identifier.tryParse(k);
+			var item = i == null ? null : BuiltInRegistries.ITEM.getValue(i);
+			return new ItemStack(item == null ? Items.BARRIER : item);
+		});
+	}
+
+	private void swatch(GuiGraphicsExtractor g, Node n, boolean hover) {
+		int rgb = n.num("rgb", 0) & 0xFFFFFF;
+		boolean on = n.flag("selected");
+		if (on || hover) card(g, n.x - 2, n.y - 2, n.x + n.w + 2, n.y + n.h + 2, 0, on ? Theme.ACCENT : Theme.FAINT);
+		card(g, n.x, n.y, n.x + n.w, n.y + n.h, 0xFF000000 | rgb, 0x30FFFFFF);
+		String label = n.str("label");
+		if (label != null) {
+			Component c = Component.literal(label);
+			g.text(font, c, n.x + n.w / 2 - font.width(c) / 2 + 1, n.y + 2, rgb > 0x808080 ? 0xFF18181B : 0xFFFFFFFF, false);
+		}
+	}
+
+	private void coin(GuiGraphicsExtractor g, int x, int y) {
+		g.blit(RenderPipelines.GUI_TEXTURED, COIN, x, y, 0.0F, 0.0F, UiTree.COIN, UiTree.COIN, 16, 16, 16, 16, 0xFFFFFFFF);
+	}
+
+	private void drawMarkers(GuiGraphicsExtractor g, int mx, int my) {
+		for (int i = 0; i < markers.size(); i++) {
+			Marker m = markers.get(i);
+			int x = markerXY[i * 2];
+			int y = markerXY[i * 2 + 1];
+			if (m.at().equals(linkTo) && linkFrom >= 0 && linkFrom < panels.size()) {
+				Node from = panels.get(linkFrom).node();
+				dashedLine(g, from.x, from.y + 14, x, y, (Theme.ACCENT & 0xFFFFFF) | 0xC0000000);
+			}
+		}
+		for (int i = 0; i < markers.size(); i++) {
+			Marker m = markers.get(i);
+			int x = markerXY[i * 2];
+			int y = markerXY[i * 2 + 1];
+			boolean hover = Math.abs(mx - x) <= 6 && Math.abs(my - y) <= 6;
+			dot(g, x, y, m.active() ? Theme.ACCENT : hover ? Theme.FG : 0xFFD4D4D8, m.active());
+			if (hover && m.tooltip() != null) g.setTooltipForNextFrame(font, Component.literal(m.tooltip()), mx, my);
+		}
+	}
+
+	/** The key hints along the bottom, like keyboard shortcuts on the site. */
+	private void drawHints(GuiGraphicsExtractor g) {
+		if (hints.isEmpty()) {
+			barX0 = barY0 = barX1 = barY1 = 0;
+			return;
+		}
+		int w = 12;
+		for (String[] p : hints) w += font.width(p[0]) + 8 + 4 + font.width(p[1]) + 12;
+		barX0 = width / 2 - w / 2;
+		barY0 = height - 26;
+		barX1 = barX0 + w;
+		barY1 = barY0 + 18;
+		card(g, barX0, barY0, barX1, barY1, Theme.CARD, Theme.BORDER);
+		int x = barX0 + 12;
+		for (String[] p : hints) {
+			int kw = font.width(p[0]) + 8;
+			card(g, x, barY0 + 3, x + kw, barY0 + 15, 0, 0xFF3F3F46);
+			g.text(font, Component.literal(p[0]), x + 4, barY0 + 5, Theme.FG, false);
+			x += kw + 4;
+			g.text(font, Component.literal(p[1]), x, barY0 + 5, Theme.MUTED, false);
+			x += font.width(p[1]) + 12;
+		}
+	}
+
+	/** A card with 3 px rounded corners: background and a 1 px border, without overlapping (the background is see-through). */
+	static void card(GuiGraphicsExtractor g, int x0, int y0, int x1, int y1, int bg, int border) {
+		if (bg != 0) {
+			g.fill(x0 + 3, y0 + 1, x1 - 3, y0 + 2, bg);
+			g.fill(x0 + 2, y0 + 2, x1 - 2, y0 + 3, bg);
+			g.fill(x0 + 1, y0 + 3, x1 - 1, y1 - 3, bg);
+			g.fill(x0 + 2, y1 - 3, x1 - 2, y1 - 2, bg);
+			g.fill(x0 + 3, y1 - 2, x1 - 3, y1 - 1, bg);
+		}
+		if (border == 0) return;
+		g.fill(x0 + 3, y0, x1 - 3, y0 + 1, border);
+		g.fill(x0 + 3, y1 - 1, x1 - 3, y1, border);
+		g.fill(x0, y0 + 3, x0 + 1, y1 - 3, border);
+		g.fill(x1 - 1, y0 + 3, x1, y1 - 3, border);
+		g.fill(x0 + 1, y0 + 2, x0 + 2, y0 + 3, border);
+		g.fill(x0 + 2, y0 + 1, x0 + 3, y0 + 2, border);
+		g.fill(x1 - 2, y0 + 2, x1 - 1, y0 + 3, border);
+		g.fill(x1 - 3, y0 + 1, x1 - 2, y0 + 2, border);
+		g.fill(x0 + 1, y1 - 3, x0 + 2, y1 - 2, border);
+		g.fill(x0 + 2, y1 - 2, x0 + 3, y1 - 1, border);
+		g.fill(x1 - 2, y1 - 3, x1 - 1, y1 - 2, border);
+		g.fill(x1 - 3, y1 - 2, x1 - 2, y1 - 1, border);
+	}
+
+	private static void dashedLine(GuiGraphicsExtractor g, int ax, int ay, int bx, int by, int color) {
+		double len = Math.hypot(bx - ax, by - ay);
+		int steps = (int) (len / 2);
+		for (int i = 0; i < steps; i++) {
+			if (i % 3 == 2) continue;
+			int x = (int) Math.round(ax + (bx - ax) * (double) i / steps);
+			int y = (int) Math.round(ay + (by - ay) * (double) i / steps);
+			g.fill(x, y, x + 1, y + 1, color);
+		}
+	}
+
+	private static void dot(GuiGraphicsExtractor g, int x, int y, int color, boolean ring) {
+		g.fill(x - 1, y - 2, x + 2, y + 3, color);
+		g.fill(x - 2, y - 1, x + 3, y + 2, color);
+		if (ring) {
+			int c = (color & 0xFFFFFF) | 0x70000000;
+			g.fill(x - 2, y - 5, x + 3, y - 4, c);
+			g.fill(x - 2, y + 5, x + 3, y + 6, c);
+			g.fill(x - 5, y - 2, x - 4, y + 3, c);
+			g.fill(x + 5, y - 2, x + 6, y + 3, c);
+			g.fill(x - 4, y - 4, x - 3, y - 3, c);
+			g.fill(x + 4, y - 4, x + 5, y - 3, c);
+			g.fill(x - 4, y + 4, x - 3, y + 5, c);
+			g.fill(x + 4, y + 4, x + 5, y + 5, c);
+		}
+	}
+
+	// ------------------------------------------------------------------ input
+
+	/** The deepest node under the mouse that passes the test (grids only where they are visible). */
+	private Node find(double mx, double my, java.util.function.Predicate<Node> test) {
+		for (int i = panels.size() - 1; i >= 0; i--) {
+			Node hit = find(panels.get(i).node(), mx, my, test);
+			if (hit != null) return hit;
+		}
+		return null;
+	}
+
+	private Node find(Node n, double mx, double my, java.util.function.Predicate<Node> test) {
+		if (!n.over(mx, my)) return null;
+		for (int i = n.children.size() - 1; i >= 0; i--) {
+			Node c = n.children.get(i);
+			if (n.type.equals("grid") && (c.y + c.h <= n.y || c.y >= n.y + n.h)) continue;
+			Node hit = find(c, mx, my, test);
+			if (hit != null) return hit;
+		}
+		return n.over(mx, my) && test.test(n) ? n : null;
+	}
+
+	private boolean overPanel(double mx, double my) {
+		for (Panel p : panels) {
+			if (p.node().over(mx, my)) return true;
+		}
+		return false;
+	}
+
+	private void send(JsonObject click) {
+		if (click.has("url")) {
+			try {
+				URI uri = URI.create(click.get("url").getAsString());
+				confirmingLink = true; // this screen comes back after the confirmation
+				UiScreen self = this;
+				minecraft.gui.setScreen(new ConfirmLinkScreen(accept -> {
+					if (accept) com.mojang.blaze3d.Blaze3D.openUri(uri);
+					minecraft.gui.setScreen(self);
+				}, uri, true));
+			} catch (IllegalArgumentException e) {
+				// Not a link.
+			}
+			return;
+		}
+		if (click.has("close")) {
+			onClose();
+			return;
+		}
+		JsonObject msg = new JsonObject();
+		msg.addProperty("window", id);
+		msg.addProperty("rev", rev);
+		msg.add("click", click);
+		UiNet.send(msg);
+	}
+
+	@Override
+	public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+		double mx = event.x();
+		double my = event.y();
+		if (event.button() != com.mojang.blaze3d.platform.InputConstants.MOUSE_BUTTON_LEFT) {
+			return super.mouseClicked(event, doubleClick);
+		}
+		if (fittingScene()) {
+			for (int i = 0; i < markers.size(); i++) {
+				if (Math.abs(mx - markerXY[i * 2]) <= 6 && Math.abs(my - markerXY[i * 2 + 1]) <= 6 && markers.get(i).click() != null) {
+					send(markers.get(i).click());
+					return true;
+				}
+			}
+		}
+		Node hit = find(mx, my, n -> n.click() != null || n.dbl() != null);
+		if (hit != null) {
+			if (hit.click() != null) send(hit.click());
+			if (doubleClick && hit.dbl() != null) send(hit.dbl());
+			return true;
+		}
+		if (overPanel(mx, my) || (mx >= barX0 && mx < barX1 && my >= barY0 && my < barY1)) return true;
+		if (fittingScene()) {
+			dragging = true;
+			return true;
+		}
+		return super.mouseClicked(event, doubleClick);
+	}
+
+	@Override
+	public boolean mouseDragged(MouseButtonEvent event, double dx, double dy) {
+		if (dragging) {
+			previewYaw = Mth.wrapDegrees(previewYaw - (float) dx * 2.5f);
+			return true;
+		}
+		return super.mouseDragged(event, dx, dy);
+	}
+
+	@Override
+	public boolean mouseReleased(MouseButtonEvent event) {
+		dragging = false;
+		return super.mouseReleased(event);
+	}
+
+	@Override
+	public boolean mouseScrolled(double x, double y, double scrollX, double scrollY) {
+		for (Map.Entry<Node, Integer> e : grids.entrySet()) {
+			Node grid = e.getKey();
+			if (grid.over(x, y) && grid.maxScroll > 0) {
+				scrolls.put(key(grid), Mth.clamp(e.getValue() - scrollY * 20, 0, grid.maxScroll));
+				return true;
+			}
+		}
+		return super.mouseScrolled(x, y, scrollX, scrollY);
+	}
+}

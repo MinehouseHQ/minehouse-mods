@@ -25,7 +25,7 @@ public final class WardrobeCamera {
 
 	public static Shot shot(Entity entity, Level level, float partialTicks) {
 		Minecraft mc = Minecraft.getInstance();
-		if (!(mc.gui.screen() instanceof WardrobeScreen) || entity == null || entity != mc.player || level == null) {
+		if (!(mc.gui.screen() instanceof Fitting fitting) || !fitting.fittingScene() || entity == null || entity != mc.player || level == null) {
 			return null;
 		}
 		float yaw = entity.getYRot();

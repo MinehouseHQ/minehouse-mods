@@ -1,5 +1,6 @@
 package pro.minehouse.menu.intro;
 
+import pro.minehouse.menu.Tr;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
@@ -169,7 +170,7 @@ public final class IntroScreen extends Screen {
 			MinehouseMenu.LOG.info("MINEHOUSE_INTRO_OK t={} frame={}", t, index);
 		}
 		if (this.skippable && t > 1.5 && t < this.length - 2.0) {
-			String hint = "Любая клавиша — пропустить";
+			String hint = Tr.s("Любая клавиша — пропустить", "Any key to skip");
 			int a = (int) (Math.min(1.0, (t - 1.5) / 0.5) * 110);
 			graphics.text(this.font, hint, this.width - this.font.width(hint) - 6, this.height - 14, ARGB.color(a, 0xFFFFFF), true);
 		}

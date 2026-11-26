@@ -1,5 +1,6 @@
 package pro.minehouse.riftclient;
 
+import pro.minehouse.menu.Tr;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
@@ -22,7 +23,7 @@ import net.minecraft.world.item.ItemStack;
  */
 public final class RiftBagScreen<T extends AbstractContainerMenu> extends AbstractContainerScreen<T> {
 	static final EquipmentSlot[] WORN = {EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET};
-	private static final String[] WORN_NAMES = {"Шлем", "Нагрудник", "Поножи", "Ботинки"};
+	private static final String[] WORN_NAMES = {Tr.s("Шлем", "Helmet"), Tr.s("Нагрудник", "Chestplate"), Tr.s("Поножи", "Leggings"), Tr.s("Ботинки", "Boots")};
 	private static final int BOX = 18;
 	private static final int GEAR_W = 30;
 	/** The bag's crafting grid and its result: of no use in a run, neither drawn nor clickable. */
@@ -38,11 +39,11 @@ public final class RiftBagScreen<T extends AbstractContainerMenu> extends Abstra
 	}
 
 	public static RiftBagScreen<ChestMenu> chest(ChestMenu menu, Inventory inventory) {
-		return new RiftBagScreen<>(menu, inventory, Component.literal("СУНДУК"), true, menu.getRowCount(), chestHeight(menu.getRowCount()));
+		return new RiftBagScreen<>(menu, inventory, Component.literal(Tr.s("СУНДУК", "CHEST")), true, menu.getRowCount(), chestHeight(menu.getRowCount()));
 	}
 
 	public static RiftBagScreen<InventoryMenu> bag(Inventory inventory) {
-		return new RiftBagScreen<>(inventory.player.inventoryMenu, inventory, Component.literal("СУМКА"), false, 0, 166);
+		return new RiftBagScreen<>(inventory.player.inventoryMenu, inventory, Component.literal(Tr.s("СУМКА", "BAG")), false, 0, 166);
 	}
 
 	/** As tall as the usual chest window of that many rows, so the slots of the menu fall in place. */
@@ -73,7 +74,7 @@ public final class RiftBagScreen<T extends AbstractContainerMenu> extends Abstra
 	protected void init() {
 		super.init();
 		if (this.chest) {
-			this.addRenderableWidget(new Ui.Flat(this.leftPos + this.imageWidth - 8 - 78, this.topPos + 4, 78, 12, Component.literal("ЗАБРАТЬ ВСЁ"),
+			this.addRenderableWidget(new Ui.Flat(this.leftPos + this.imageWidth - 8 - 78, this.topPos + 4, 78, 12, Component.literal(Tr.s("ЗАБРАТЬ ВСЁ", "TAKE ALL")),
 					Ui.ACCENT, Ui.INK, -1, 0.75f, this::takeAll));
 		}
 	}
@@ -155,10 +156,10 @@ public final class RiftBagScreen<T extends AbstractContainerMenu> extends Abstra
 	protected void extractLabels(GuiGraphicsExtractor g, int mouseX, int mouseY) {
 		if (this.chest) {
 			g.text(this.font, this.title, 8, 6, Ui.a(Ui.WHITE, 1), false);
-			g.text(this.font, Component.literal("СУМКА"), 8, this.imageHeight - 94, Ui.a(Ui.MUTED, 1), false);
-			g.text(this.font, Component.literal("ПКМ по броне: надеть"), 8, this.imageHeight + 5, Ui.a(Ui.MUTED, 1), true);
+			g.text(this.font, Component.literal(Tr.s("СУМКА", "BAG")), 8, this.imageHeight - 94, Ui.a(Ui.MUTED, 1), false);
+			g.text(this.font, Component.literal(Tr.s("ПКМ по броне: надеть", "Right-click armor: wear")), 8, this.imageHeight + 5, Ui.a(Ui.MUTED, 1), true);
 			int gx = this.gearX() - this.leftPos;
-			Ui.big(g, this.font, "БРОНЯ", gx + GEAR_W / 2, 8, 0.5f, Ui.a(Ui.MUTED, 1), 1);
+			Ui.big(g, this.font, Tr.s("БРОНЯ", "ARMOR"), gx + GEAR_W / 2, 8, 0.5f, Ui.a(Ui.MUTED, 1), 1);
 			for (int i = 0; i < WORN.length; i++) {
 				ItemStack worn = this.minecraft.player.getItemBySlot(WORN[i]);
 				int bx = gx + 7;
@@ -170,9 +171,9 @@ public final class RiftBagScreen<T extends AbstractContainerMenu> extends Abstra
 			}
 		} else {
 			g.text(this.font, this.title, 32, 10, Ui.a(Ui.WHITE, 1), false);
-			g.text(this.font, Component.literal("Броня: слоты слева"), 32, 24, Ui.a(Ui.MUTED, 1), false);
-			g.text(this.font, Component.literal("Вторая рука"), 98, 67, Ui.a(Ui.MUTED, 1), false);
-			g.text(this.font, Component.literal("Shift + клик по броне: надеть"), 8, this.imageHeight + 5, Ui.a(Ui.MUTED, 1), true);
+			g.text(this.font, Component.literal(Tr.s("Броня: слоты слева", "Armor: slots on the left")), 32, 24, Ui.a(Ui.MUTED, 1), false);
+			g.text(this.font, Component.literal(Tr.s("Вторая рука", "Off hand")), 98, 67, Ui.a(Ui.MUTED, 1), false);
+			g.text(this.font, Component.literal(Tr.s("Shift + клик по броне: надеть", "Shift + click armor: wear")), 8, this.imageHeight + 5, Ui.a(Ui.MUTED, 1), true);
 		}
 	}
 
@@ -182,7 +183,7 @@ public final class RiftBagScreen<T extends AbstractContainerMenu> extends Abstra
 		if (piece >= 0 && this.menu.getCarried().isEmpty()) {
 			ItemStack worn = this.minecraft.player.getItemBySlot(WORN[piece]);
 			if (worn.isEmpty()) {
-				g.setTooltipForNextFrame(this.font, Component.literal(WORN_NAMES[piece] + ": пусто"), mouseX, mouseY);
+				g.setTooltipForNextFrame(this.font, Component.literal(WORN_NAMES[piece] + Tr.s(": пусто", ": empty")), mouseX, mouseY);
 			} else {
 				g.setTooltipForNextFrame(this.font, worn, mouseX, mouseY);
 			}

@@ -1,5 +1,6 @@
 package pro.minehouse.zonesclient;
 
+import pro.minehouse.menu.Tr;
 import java.util.List;
 
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -39,11 +40,11 @@ final class Demo {
 
 	private static void shapes(int px, int py, int pz) {
 		MinehouseZonesClient.shapes = List.of(
-				new ZoneShapesPayload.Shape(0x55E05A, false, py - 4, py + 30, "Зона 1 · свободна",
+				new ZoneShapesPayload.Shape(0x55E05A, false, py - 4, py + 30, Tr.s("Зона 1 · свободна", "Zone 1 · free"),
 						new int[] {px + 6, px + 30, px + 34, px + 12}, new int[] {pz + 10, pz + 6, pz + 30, pz + 36}),
-				new ZoneShapesPayload.Shape(0xFFB000, false, py - 4, py + 30, "Зона 2 · аукцион",
+				new ZoneShapesPayload.Shape(0xFFB000, false, py - 4, py + 30, Tr.s("Зона 2 · аукцион", "Zone 2 · auction"),
 						new int[] {px - 30, px - 4, px - 8, px - 34}, new int[] {pz + 14, pz + 12, pz + 40, pz + 38}),
-				new ZoneShapesPayload.Shape(0xB04CFF, true, py - 4, py + 30, "Черновик",
+				new ZoneShapesPayload.Shape(0xB04CFF, true, py - 4, py + 30, Tr.s("Черновик", "Draft"),
 						new int[] {px - 2, px + 4, px + 8}, new int[] {pz + 50, pz + 46, pz + 56}));
 	}
 }

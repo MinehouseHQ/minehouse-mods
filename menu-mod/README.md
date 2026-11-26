@@ -45,6 +45,20 @@ Events Editor и Zones Client. Каждая часть живёт в своём 
 Адрес сервера и ссылки в `config/minehouse-menu.properties` (сборка кладёт его
 сама, `discord.url` пустой = кнопки Discord нет).
 
+## Броня в гардеробе
+
+Открой гардероб (`O`) и нажми «Броня: видна» под списком вещей. Переключатель доступен
+также с клавиатуры (`Tab`, затем `Enter` или `Пробел`). В примерочной и от третьего лица
+броня скрывается вместе с отделкой и блеском. Сами предметы остаются надетыми; переименование
+не нужно. Элитры и косметика гардероба не скрываются.
+
+[Скриншот: броня видна и скрыта](docs/wardrobe-armor-visibility.png)
+
+В `minehouse-cosmetics:state` поле `armorHidden` (boolean) задаёт и видимость брони, и наличие
+переключателя; без поля броня видна, переключателя нет. Клиент отправляет через
+`minehouse-cosmetics:action` `{"action":"armor_visibility","id":"hide"}` или `"show"` и ждёт
+нового состояния. При выходе с сервера это состояние сбрасывается.
+
 ## Наковальня (`pro.minehouse.anvilclient`)
 
 Клиентский Fabric-мод для сборки MineHouse. Показывает в окне наковальни настоящую цену
@@ -187,6 +201,17 @@ Fortnite. Как и серверные картинки, дыра рисуетс
 снова отвечает на пинг, но не раньше чем через 5 минут после конца: это уже следующая глава. Засасывание в
 дыру рисует ванильный пост-эффект из ресурспака сервера, мод для него не нужен.
 
+## Тело игрока из частей (`pro.minehouse.menu.skin`)
+
+MineHouse Events собирает тело игрока в его скине из шести item display (кости `skin_*` в ригах,
+катсцена смерти в разломе): каждый display — голова игрока, которую ванильный core-шейдер
+(stable_player_display) превращает в нужную часть скина. Шейдерпаки (Iris) подменяют core-шейдеры,
+и тогда вместо тела видна каша из голов. С 1.18.0 мод рисует такие display сам, частями обычной
+модели игрока (`SkinParts`, миксин `SkinPartDisplayMixin`), так что тело одинаковое с шейдерами и без.
+Должно совпадать с Events Puppeteer: часть n сдвинута на 1024·n блоков вниз, начало display — точка,
+на которой шейдер вешает часть (шея для головы и торса, верх-середина рук и ног).
+`-Dminehouse.skinParts=debug` рисует нашу часть рядом с шейдерной (для сверки), `=off` выключает.
+
 ## Редактор шоу (`pro.minehouse.eventseditor`)
 
 Клиентский Fabric-мод: редактор шоу для [MineHouse Events](../events-mod/README.md). Входит в сборку
@@ -226,5 +251,6 @@ xvfb-run ./gradlew runSelftestClient -Pselftest=rift -PselftestDir=run-selftest-
 `white-list=false`, Steve в `ops.json`), потом `./gradlew runDemoClient`. Скриншоты лягут в
 `run-demo/screenshots/`.
 
-Поменял мод: `./gradlew build && cp build/libs/minehouse-client-*.jar ../modpack/minehouse-client.jar`,
-подними `version` в `gradle.properties` и в `modpack/pack.json`.
+Поменял мод: подними `version` в `gradle.properties`. После мёржа в `main` minehouse-server CI
+(`.github/workflows/mod-jars.yml`) сам соберёт jar и закоммитит его в minehouse-landing
+`modpack/minehouse-client.jar`, сайт раздаст его в сборке и автообновлении.

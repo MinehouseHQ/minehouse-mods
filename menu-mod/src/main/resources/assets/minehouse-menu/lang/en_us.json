@@ -1,4 +1,7 @@
 {
+  "minehouse.wardrobe.armor.visible": "Armor: visible",
+  "minehouse.wardrobe.armor.hidden": "Armor: hidden",
+  "minehouse.wardrobe.armor.hint": "Show or hide your worn armor. Your equipment stays on.",
   "key.minehouse.wardrobe": "Wardrobe",
   "key.category.minehouse.keys": "MineHouse"
 }

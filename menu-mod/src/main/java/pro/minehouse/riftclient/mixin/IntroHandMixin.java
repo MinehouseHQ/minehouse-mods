@@ -8,12 +8,12 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import net.minecraft.client.renderer.GameRenderer;
 import pro.minehouse.riftclient.Intro;
 
-/** No hand or held item in front of the Chapter 2 opening. */
+/** No hand or held item in front of the Chapter 2 opening, or while the camera is out for stroking a pet. */
 @Mixin(GameRenderer.class)
 public abstract class IntroHandMixin {
 	@Inject(method = "renderItemInHand", at = @At("HEAD"), cancellable = true)
 	private void minehouse$hideHand(CallbackInfo ci) {
-		if (Intro.playing()) {
+		if (Intro.playing() || pro.minehouse.menu.wardrobe.PetPat.cameraOut()) {
 			ci.cancel();
 		}
 	}

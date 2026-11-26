@@ -17,4 +17,11 @@ class RelaunchTest {
 			Relaunch.parseWindows("java a\\\\b \"say \\\"hi\\\"\" \"c:\\dir\\\\\" x\\\"y"));
 		assertEquals(List.of("java", ""), Relaunch.parseWindows("java \"\""));
 	}
+
+	@Test
+	void parsesProcCmdline() {
+		assertEquals(List.of("/usr/bin/java", "-cp", "a b.jar", "Main", ""),
+			Relaunch.parseProcCmdline("/usr/bin/java\0-cp\0a b.jar\0Main\0\0".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+		assertEquals(List.of("java", "x"), Relaunch.parseProcCmdline("java\0x".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+	}
 }

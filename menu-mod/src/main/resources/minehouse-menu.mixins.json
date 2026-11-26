@@ -2,7 +2,24 @@
   "required": true,
   "package": "pro.minehouse.menu.mixin",
   "compatibilityLevel": "JAVA_25",
-  "client": ["AvatarRendererMixin", "CameraMixin", "EntityRenderDispatcherMixin", "GuiMixin", "LivingEntityRendererMixin", "RidingMinecartSoundMixin", "TitleScreenMixin"],
+  "client": [
+    "AvatarRendererMixin",
+    "CameraMixin",
+    "EntityRenderDispatcherMixin",
+    "EquipmentAssetsAccess",
+    "GuiMixin",
+    "LivingEntityRendererMixin",
+    "LivingEntityRendererSubmitMixin",
+    "RidingMinecartSoundMixin",
+    "SkinPartDisplayMixin",
+    "SkinPartStateMixin",
+    "TitleScreenMixin",
+    "ItemDisplayRendererMixin",
+    "ItemStackRenderStateAccess",
+    "LayerRenderStateAccess",
+    "PlayerModelMixin",
+    "TeardownFrameMixin"
+  ],
   "injectors": {
     "defaultRequire": 1
   }

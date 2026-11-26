@@ -75,12 +75,12 @@ public final class ServerStatus {
 	/** "▶ Играть на MineHouse · 12 онлайн" */
 	public static Component playLabel() {
 		ServerData d = data();
-		var label = Component.literal("▶ Играть на " + MenuConfig.serverName).withColor(0xD8B4FE);
+		var label = Component.literal(Tr.s("▶ Играть на ", "▶ Play on ") + MenuConfig.serverName).withColor(0xD8B4FE);
 		return switch (d.state()) {
 			case SUCCESSFUL -> d.players != null
-				? label.append(Component.literal("  " + d.players.online() + " онлайн").withColor(0x7CF08A))
+				? label.append(Component.literal("  " + d.players.online() + Tr.s(" онлайн", " online")).withColor(0x7CF08A))
 				: label;
-			case UNREACHABLE -> label.append(Component.literal("  офлайн").withColor(0xFF7070));
+			case UNREACHABLE -> label.append(Component.literal(Tr.s("  офлайн", "  offline")).withColor(0xFF7070));
 			default -> label;
 		};
 	}
@@ -91,13 +91,13 @@ public final class ServerStatus {
 		return switch (d.state()) {
 			case SUCCESSFUL -> d.players != null
 				? Component.literal("● ").withColor(0x55FF55).append(Component.literal(
-					"Онлайн: " + d.players.online() + " из " + d.players.max()).withColor(0xE0E0E0))
-				: Component.literal("● ").withColor(0x55FF55).append(Component.literal("Сервер работает").withColor(0xE0E0E0));
+					Tr.s("Онлайн: ", "Online: ") + d.players.online() + Tr.s(" из ", " of ") + d.players.max()).withColor(0xE0E0E0))
+				: Component.literal("● ").withColor(0x55FF55).append(Component.literal(Tr.s("Сервер работает", "Server is up")).withColor(0xE0E0E0));
 			case INCOMPATIBLE -> Component.literal("● ").withColor(0xFFAA00)
-				.append(Component.literal("Нужна версия " + d.version.getString()).withColor(0xE0E0E0));
+				.append(Component.literal(Tr.s("Нужна версия ", "Needs version ") + d.version.getString()).withColor(0xE0E0E0));
 			case UNREACHABLE -> Component.literal("● ").withColor(0xFF5555)
-				.append(Component.literal("Сервер недоступен").withColor(0xE0E0E0));
-			default -> Component.literal("Проверяем сервер…").withColor(0xA0A0A0);
+				.append(Component.literal(Tr.s("Сервер недоступен", "Server is down")).withColor(0xE0E0E0));
+			default -> Component.literal(Tr.s("Проверяем сервер…", "Checking the server…")).withColor(0xA0A0A0);
 		};
 	}
 }

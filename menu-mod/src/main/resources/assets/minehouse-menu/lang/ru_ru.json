@@ -1,4 +1,7 @@
 {
+  "minehouse.wardrobe.armor.visible": "Броня: видна",
+  "minehouse.wardrobe.armor.hidden": "Броня: скрыта",
+  "minehouse.wardrobe.armor.hint": "Показать или скрыть надетую броню. Снимать её не нужно.",
   "key.minehouse.wardrobe": "Гардероб",
   "key.category.minehouse.keys": "MineHouse"
 }

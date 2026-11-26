@@ -27,7 +27,7 @@ public final class PackModsScreen extends Screen {
 	private int page;
 
 	public PackModsScreen(Screen parent) {
-		super(Component.literal("Моды сборки"));
+		super(Component.literal(Tr.s("Моды сборки", "Modpack mods")));
 		this.parent = parent;
 		this.initial = new TreeSet<>(PackUpdater.disabled());
 		this.disabled = new TreeSet<>(this.initial);
@@ -80,7 +80,7 @@ public final class PackModsScreen extends Screen {
 			}).bounds(left + (i % 2) * 160, top + (i / 2) * ROW, 150, 20).build();
 			String tip = o.why() == null ? "" : o.why();
 			if (!missing.isEmpty()) {
-				tip += "\n§eНе работает без: " + String.join(", ", missing);
+				tip += Tr.s("\n§eНе работает без: ", "\n§eDoesn't work without: ") + String.join(", ", missing);
 			}
 			if (!tip.isEmpty()) {
 				b.setTooltip(Tooltip.create(Component.literal(tip)));
@@ -103,13 +103,13 @@ public final class PackModsScreen extends Screen {
 			this.addRenderableWidget(prev);
 			this.addRenderableWidget(next);
 		}
-		this.addRenderableWidget(Button.builder(Component.literal("Готово"), b -> {
+		this.addRenderableWidget(Button.builder(Component.literal(Tr.s("Готово", "Done")), b -> {
 			if (!this.disabled.equals(this.initial)) {
 				PackUpdater.choose(this.disabled);
 			}
 			this.onClose();
 		}).bounds(this.width / 2 - 155, bottom, 150, 20).build());
-		this.addRenderableWidget(Button.builder(Component.literal("Отмена"), b -> {
+		this.addRenderableWidget(Button.builder(Component.literal(Tr.s("Отмена", "Cancel")), b -> {
 			this.disabled.clear();
 			this.disabled.addAll(this.initial);
 			this.onClose();
@@ -119,17 +119,17 @@ public final class PackModsScreen extends Screen {
 	@Override
 	public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
 		super.extractRenderState(graphics, mouseX, mouseY, partialTick);
-		String title = "Моды сборки";
+		String title = Tr.s("Моды сборки", "Modpack mods");
 		graphics.text(this.font, title, (this.width - this.font.width(title)) / 2, 12, ARGB.color(255, 0xFFFFFF), true);
 		String hint;
 		if (PackUpdater.manifest() == null) {
-			hint = PackUpdater.phase() == PackUpdater.Phase.FAILED ? "Не удалось загрузить список модов с сайта" : "Загружаю список модов…";
+			hint = PackUpdater.phase() == PackUpdater.Phase.FAILED ? Tr.s("Не удалось загрузить список модов с сайта", "Couldn't load the mod list from the website") : Tr.s("Загружаю список модов…", "Loading the mod list…");
 		} else if (!this.disabled.equals(this.initial)) {
-			hint = "Изменения применятся после перезапуска игры";
+			hint = Tr.s("Изменения применятся после перезапуска игры", "Changes apply after restarting the game");
 		} else if (PackUpdater.changed()) {
-			hint = "Перезапусти игру, чтобы применить изменения";
+			hint = Tr.s("Перезапусти игру, чтобы применить изменения", "Restart the game to apply the changes");
 		} else {
-			hint = "Обязательные моды здесь не показаны. Выключенный мод можно заменить своей версией.";
+			hint = Tr.s("Обязательные моды здесь не показаны. Выключенный мод можно заменить своей версией.", "Required mods aren't shown here. A mod you turn off can be replaced with your own version.");
 		}
 		graphics.text(this.font, hint, (this.width - this.font.width(hint)) / 2, 26, ARGB.color(255, 0xA0A0A0), true);
 	}

@@ -1,5 +1,6 @@
 package pro.minehouse.riftclient;
 
+import pro.minehouse.menu.Tr;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -24,7 +25,7 @@ public final class Combat {
 	static final int WAVE = 1;
 	static final int SHARD = 2;
 	static final int COUNT = 3;
-	private static final String[] NAMES = {"ПЕРЕКАТ", "ВОЛНА", "ОСКОЛОК"};
+	private static final String[] NAMES = {Tr.s("ПЕРЕКАТ", "ROLL"), Tr.s("ВОЛНА", "WAVE"), Tr.s("ОСКОЛОК", "SHARD")};
 
 	/** When each skill is ready again (ms of {@link Util#getMillis()}) and how long its cooldown was. */
 	private static final long[] readyAt = new long[COUNT];
@@ -195,13 +196,13 @@ public final class Combat {
 		String n = name.trim();
 		String low = n.toLowerCase(java.util.Locale.ROOT);
 		if (low.startsWith("лев") || low.startsWith("left b") || low.equals("left click")) {
-			return "ЛКМ";
+			return Tr.s("ЛКМ", "LMB");
 		}
 		if (low.startsWith("прав") || low.startsWith("right b") || low.equals("right click")) {
-			return "ПКМ";
+			return Tr.s("ПКМ", "RMB");
 		}
 		if (low.startsWith("проб") || low.equals("space")) {
-			return "ПРОБЕЛ";
+			return Tr.s("ПРОБЕЛ", "SPACE");
 		}
 		n = n.toUpperCase(java.util.Locale.ROOT);
 		return n.length() > 6 ? n.substring(0, 6) : n;
@@ -230,7 +231,7 @@ public final class Combat {
 			x = w / 2 - width / 2;
 			y = h - 62;
 		}
-		String[] names = {"УДАР", NAMES[0], NAMES[1], NAMES[2]};
+		String[] names = {Tr.s("УДАР", "HIT"), NAMES[0], NAMES[1], NAMES[2]};
 		for (int i = 0; i < 4; i++) {
 			int sx = x + i * (SLOT + GAP);
 			int skill = i - 1;

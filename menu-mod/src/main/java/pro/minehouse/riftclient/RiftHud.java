@@ -1,5 +1,6 @@
 package pro.minehouse.riftclient;
 
+import pro.minehouse.menu.Tr;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
@@ -160,15 +161,15 @@ public final class RiftHud {
 
 	/** What stands over the room: "ЗАЛ 2 ИЗ 3 · ВОЛНА 1 ИЗ 2"; the entry hall has no number. */
 	static String objective(RiftUiPayloads.Run r) {
-		String room = r.room() <= 0 ? "ВХОД В РАЗЛОМ" : "ЗАЛ " + r.room() + " ИЗ " + r.rooms();
-		return r.waves() > 0 ? room + " · ВОЛНА " + Math.max(1, r.wave()) + " ИЗ " + r.waves() : room;
+		String room = r.room() <= 0 ? Tr.s("ВХОД В РАЗЛОМ", "RIFT ENTRANCE") : Tr.s("ЗАЛ ", "HALL ") + r.room() + Tr.s(" ИЗ ", " OF ") + r.rooms();
+		return r.waves() > 0 ? room + Tr.s(" · ВОЛНА ", " · WAVE ") + Math.max(1, r.wave()) + Tr.s(" ИЗ ", " OF ") + r.waves() : room;
 	}
 
 	/** The line of a teammate in the run: health, or how long they have left on the ground. */
 	static String mateNote(RiftUiPayloads.Mate m) {
 		return switch (m.state()) {
-			case 1 -> "УПАЛ · " + Math.max(0, m.downLeft()) + " с";
-			case 2 -> "ВЫБЫЛ";
+			case 1 -> Tr.s("УПАЛ · ", "DOWN · ") + Math.max(0, m.downLeft()) + Tr.s(" с", " s");
+			case 2 -> Tr.s("ВЫБЫЛ", "OUT");
 			default -> String.valueOf(m.health());
 		};
 	}
@@ -327,12 +328,12 @@ public final class RiftHud {
 			// We are raising someone.
 			int bw = 140;
 			int sy = h - 78;
-			g.centeredText(font, Component.literal("Поднимаешь " + run.reviveName()), cx, sy - 11, Ui.a(0xBBF7D0, 1));
+			g.centeredText(font, Component.literal(Tr.s("Поднимаешь ", "Reviving ") + run.reviveName()), cx, sy - 11, Ui.a(0xBBF7D0, 1));
 			Ui.bar(g, cx - bw / 2, sy, bw, 6, run.revive() / 100f, Ui.GREEN, 0x14532D, 1);
 		} else {
 			for (RiftUiPayloads.Mate m : run.mates()) {
 				if (m.state() == 1) {
-					String text = "Держи рядом с упавшим, чтобы поднять " + m.name();
+					String text = Tr.s("Держи рядом с упавшим, чтобы поднять ", "Stay next to the fallen to revive ") + m.name();
 					int tw = font.width(text) + 44;
 					int sy = h - 80;
 					Ui.panel(g, cx - tw / 2, sy, tw, 16, 0x120A1C, 0.9f);
@@ -356,19 +357,19 @@ public final class RiftHud {
 		g.fill(w - t, t, w, h - t, edge);
 		int cx = w / 2;
 		int cy = h / 5;
-		Ui.big(g, font, "ТЫ УПАЛ", cx, cy, 3f, Ui.a(Ui.RED, 1), 1);
-		g.centeredText(font, Component.literal("Ползи к напарнику. Без помощи выбываешь через " + run.downLeft() + " с"), cx, cy + 30, Ui.a(0xFECDD3, 1));
+		Ui.big(g, font, Tr.s("ТЫ УПАЛ", "YOU'RE DOWN"), cx, cy, 3f, Ui.a(Ui.RED, 1), 1);
+		g.centeredText(font, Component.literal(Tr.s("Ползи к напарнику. Без помощи выбываешь через ", "Crawl to a teammate. Without help you're out in ") + run.downLeft() + Tr.s(" с", " s")), cx, cy + 30, Ui.a(0xFECDD3, 1));
 		if (run.revive() >= 0 && run.reviveMine()) {
 			int bw = 120;
 			int ry = cy + 50;
-			g.centeredText(font, Component.literal(run.reviveName().isEmpty() ? "Тебя поднимают" : run.reviveName() + " поднимает тебя"), cx, ry,
+			g.centeredText(font, Component.literal(run.reviveName().isEmpty() ? Tr.s("Тебя поднимают", "You're being revived") : run.reviveName() + Tr.s(" поднимает тебя", " is reviving you")), cx, ry,
 					Ui.a(0xBBF7D0, 1));
 			Ui.bar(g, cx - bw / 2, ry + 12, bw, 6, run.revive() / 100f, Ui.GREEN, 0x14532D, 1);
 		}
 		int bw = Math.min(200, w / 2);
 		int by = h - 78;
 		Ui.bar(g, cx - bw / 2, by, bw, 7, run.downLeft() / (float) Math.max(1, run.downTotal()), Ui.RED, 0x9F1239, 1);
-		Ui.big(g, font, "ДО ВЫБЫВАНИЯ", cx, by + 12, 0.75f, Ui.a(0xFECDD3, 1), 1);
+		Ui.big(g, font, Tr.s("ДО ВЫБЫВАНИЯ", "UNTIL OUT"), cx, by + 12, 0.75f, Ui.a(0xFECDD3, 1), 1);
 	}
 
 	// --- The results -------------------------------------------------------------------------
@@ -381,9 +382,9 @@ public final class RiftHud {
 		g.fill(0, 0, w, band, Ui.a(Ui.PANEL, a));
 		g.fill(0, band, w, band + 2, Ui.a(r.won() ? Ui.ACCENT : Ui.RED, a));
 		int m = Math.max(12, w / 16);
-		Ui.label(g, font, "ЗАБЕГ ОКОНЧЕН", m, band - 44, Ui.MUTED);
-		Ui.big(g, font, r.won() ? "РАЗЛОМ ЗАКРЫТ" : "ОТРЯД ПАЛ", m, band - 34, 3f, Ui.ink(r.won() ? Ui.YELLOW : Ui.RED, a), 0);
-		Ui.big(g, font, "ВРЕМЯ", w - m, band - 44, 0.75f, Ui.a(Ui.MUTED, 1), 2);
+		Ui.label(g, font, Tr.s("ЗАБЕГ ОКОНЧЕН", "RUN OVER"), m, band - 44, Ui.MUTED);
+		Ui.big(g, font, r.won() ? Tr.s("РАЗЛОМ ЗАКРЫТ", "RIFT CLOSED") : Tr.s("ОТРЯД ПАЛ", "PARTY FELL"), m, band - 34, 3f, Ui.ink(r.won() ? Ui.YELLOW : Ui.RED, a), 0);
+		Ui.big(g, font, Tr.s("ВРЕМЯ", "TIME"), w - m, band - 44, 0.75f, Ui.a(Ui.MUTED, 1), 2);
 		Ui.big(g, font, Ui.clock(r.seconds()), w - m, band - 30, 2f, Ui.ink(Ui.WHITE, a), 2);
 
 		int n = Math.max(1, r.scores().size());
@@ -399,9 +400,9 @@ public final class RiftHud {
 			g.fill(x, y, x + cw, y + 2, Ui.a(top, a));
 			Ui.face(g, s.name(), x + 6, y + 8, 16);
 			g.text(font, font.plainSubstrByWidth(s.name(), cw - 32), x + 26, y + 8, Ui.ink(Ui.WHITE, a), false);
-			String tag = s.out() ? "ВЫБЫЛ" : i == best ? "ЛУЧШИЙ В ОТРЯДЕ" : r.won() ? "ДОШЁЛ ДО КОНЦА" : "ДЕРЖАЛСЯ";
+			String tag = s.out() ? Tr.s("ВЫБЫЛ", "OUT") : i == best ? Tr.s("ЛУЧШИЙ В ОТРЯДЕ", "PARTY MVP") : r.won() ? Tr.s("ДОШЁЛ ДО КОНЦА", "MADE IT TO THE END") : Tr.s("ДЕРЖАЛСЯ", "HELD ON");
 			Ui.big(g, font, tag, x + 26, y + 18, 0.6f, Ui.a(s.out() ? 0xFECDD3 : i == best ? 0xFDE68A : Ui.MUTED, 1), 0);
-			String[][] rows = { { "Убито", String.valueOf(s.kills()) }, { "Поднял", String.valueOf(s.revives()) }, { "Падал", String.valueOf(s.downs()) } };
+			String[][] rows = { { Tr.s("Убито", "Kills"), String.valueOf(s.kills()) }, { Tr.s("Поднял", "Revives"), String.valueOf(s.revives()) }, { Tr.s("Падал", "Downs"), String.valueOf(s.downs()) } };
 			int ry = y + 32;
 			for (String[] row : rows) {
 				g.text(font, row[0], x + 6, ry, Ui.ink(Ui.MUTED, a), false);
@@ -411,6 +412,6 @@ public final class RiftHud {
 			x += cw + gap;
 		}
 		int left = Math.max(0, r.backIn() - (int) ((now - resultBorn) / 1000));
-		g.text(font, "Возврат в лобби через " + left + " с", m, y + 92, Ui.ink(Ui.MUTED, a), false);
+		g.text(font, Tr.s("Возврат в лобби через ", "Back to the lobby in ") + left + Tr.s(" с", " s"), m, y + 92, Ui.ink(Ui.MUTED, a), false);
 	}
 }

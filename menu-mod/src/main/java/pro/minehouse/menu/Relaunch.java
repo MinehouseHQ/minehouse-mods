@@ -1,6 +1,9 @@
 package pro.minehouse.menu;
 
 import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -37,6 +40,13 @@ final class Relaunch {
 				cmd = new ArrayList<>();
 				cmd.add(java);
 				cmd.addAll(Arrays.asList(args));
+			} else if (Files.isReadable(Path.of("/proc/self/cmdline"))) {
+				// Linux: the JDK gives up on long command lines (the game's classpath), /proc has all of it.
+				List<String> parsed = parseProcCmdline(Files.readAllBytes(Path.of("/proc/self/cmdline")));
+				if (parsed.size() > 1) {
+					cmd = new ArrayList<>(parsed);
+					cmd.set(0, java);
+				}
 			} else if (System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows")) {
 				// Windows doesn't give Java the arguments of a process: ask kernel32 through JNA (shipped with Minecraft).
 				String line = windowsCommandLine();
@@ -79,6 +89,22 @@ final class Relaunch {
 			MinehouseMenu.LOG.warn("GetCommandLineW failed", t);
 			return null;
 		}
+	}
+
+	/** /proc/<pid>/cmdline: arguments separated (and ended) by NUL bytes. */
+	static List<String> parseProcCmdline(byte[] raw) {
+		List<String> out = new ArrayList<>();
+		int start = 0;
+		for (int i = 0; i < raw.length; i++) {
+			if (raw[i] == 0) {
+				out.add(new String(raw, start, i - start, StandardCharsets.UTF_8));
+				start = i + 1;
+			}
+		}
+		if (start < raw.length) {
+			out.add(new String(raw, start, raw.length - start, StandardCharsets.UTF_8));
+		}
+		return out;
 	}
 
 	/** Splits a Windows command line the way the C runtime does (CommandLineToArgvW rules). */
