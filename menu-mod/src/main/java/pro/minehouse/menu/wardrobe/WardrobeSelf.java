@@ -1,6 +1,5 @@
 package pro.minehouse.menu.wardrobe;
 
-import org.joml.Quaternionf;
 
 import java.util.List;
 import java.util.Map;
@@ -14,7 +13,6 @@ import com.mojang.math.Axis;
 import net.fabricmc.fabric.api.client.rendering.v1.LivingEntityRenderLayerRegistrationCallback;
 import net.fabricmc.fabric.api.client.rendering.v1.RenderStateDataKey;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.model.player.PlayerModel;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.entity.RenderLayerParent;
@@ -363,14 +361,11 @@ public final class WardrobeSelf {
 	private static final float CAPE_PIVOT_Z = 2 / 16f;
 
 	/**
-	 * Belts, at the hips: placed like the backpack (the neck's frame, the item 4 px up at 10/16), but
-	 * following the legs instead of the body, which leans when sneaking while the legs only go back.
+	 * Belts, at the hips: placed like the backpack (the neck's frame, the item 4 px up at 10/16), on
+	 * the bottom of the body. They go with the body, never with a leg: animation mods (Punchy! Moves
+	 * and the like) swing the legs on their own, and the belt stays on the waist.
 	 */
 	static final class BeltLayer extends RenderLayer<AvatarRenderState, PlayerModel> {
-		/** What vanilla HumanoidModel.setupAnim does to the body when sneaking. */
-		private static final float CROUCH_BODY_Y = 3.2f;
-		private static final float CROUCH_BODY_LEAN = 0.5f;
-
 		BeltLayer(RenderLayerParent<AvatarRenderState, PlayerModel> parent) {
 			super(parent);
 		}
@@ -383,27 +378,20 @@ public final class WardrobeSelf {
 				return;
 			}
 			poseStack.pushPose();
-			PlayerModel player = getParentModel();
-			player.root().translateAndRotate(poseStack);
-			// Animation mods (Punchy! Moves and the like) move, twist and lean the body. Follow what
-			// they add on top of vanilla (sneaking: 3.2 px down and 0.5 rad forward, which the belt
-			// leaves out as the legs do), turning about the neck as the body does.
-			ModelPart body = player.body;
-			boolean crouching = state.isCrouching;
-			poseStack.translate(body.x / 16f, (body.y - (crouching ? CROUCH_BODY_Y : 0)) / 16f, body.z / 16f);
-			float lean = body.xRot - (crouching ? CROUCH_BODY_LEAN : 0);
-			if (lean != 0 || body.yRot != 0 || body.zRot != 0) {
-				poseStack.rotate(new Quaternionf().rotationZYX(body.zRot, body.yRot, lean));
-			}
-			// Standing the legs hang from 12 px below the neck; sneaking they go back and a bit down.
-			poseStack.translate(0, (player.rightLeg.y - 12) / 16f, player.rightLeg.z / 16f);
-			poseStack.translate(0, -0.25f, 0);
-			poseStack.rotateDegrees(Axis.YP, 180);
-			poseStack.scale(0.625f, -0.625f, -0.625f);
+			beltFrame(getParentModel(), poseStack);
 			if (model != null && !model.isEmpty()) model.submit(poseStack, collector, light, OverlayTexture.NO_OVERLAY, state.outlineColor);
 			for (ItemStackRenderState extra : extras) extra.submit(poseStack, collector, light, OverlayTexture.NO_OVERLAY, state.outlineColor);
 			poseStack.popPose();
 		}
+	}
+
+	/** The belt's frame: the body's (root, then body: moves, twists and leans with it), the item 4 px up. */
+	static void beltFrame(PlayerModel player, PoseStack poseStack) {
+		player.root().translateAndRotate(poseStack);
+		player.body.translateAndRotate(poseStack);
+		poseStack.translate(0, -0.25f, 0);
+		poseStack.rotateDegrees(Axis.YP, 180);
+		poseStack.scale(0.625f, -0.625f, -0.625f);
 	}
 
 	static final class BackpackLayer extends RenderLayer<AvatarRenderState, PlayerModel> {

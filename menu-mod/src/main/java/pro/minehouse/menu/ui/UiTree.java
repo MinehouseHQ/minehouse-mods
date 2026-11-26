@@ -326,11 +326,12 @@ public final class UiTree {
 		return out;
 	}
 
-	/** Whether the open tab has room for its name beside the icon (the rest show only icons). */
+	/**
+	 * Whether the open tab shows its name beside the icon: never. Tabs are icons only, the name is
+	 * the tooltip (a name that showed only when it fitted came and went from tab to tab).
+	 */
 	public boolean labelled(Node tabs, Node active) {
-		if (active == null) return false;
-		int wide = tabs.w - 4 - (tabs.children.size() - 1) * TAB_ICON_W;
-		return wide >= 16 + 3 + measure.width(active.str("text", ""), false) + 6;
+		return false;
 	}
 
 	// ------------------------------------------------------------------ json

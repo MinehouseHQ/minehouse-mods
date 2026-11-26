@@ -661,9 +661,9 @@ public final class WardrobeScreen extends Screen implements WardrobeNet.FittingV
 	record TabRow(int leftX, int leftY, Slot active, int titleWidth) {
 		private static final int INNER = LEFT_W - PAD * 2 - 4;
 
+		/** Never: tabs are icons only, the name is the tooltip. */
 		boolean labelled() {
-			int wide = INNER - (Slot.values().length - 1) * TAB_ICON_W;
-			return wide >= 16 + 3 + titleWidth + 6;
+			return false;
 		}
 
 		Box tab(Slot s) {
@@ -872,8 +872,7 @@ public final class WardrobeScreen extends Screen implements WardrobeNet.FittingV
 		WardrobeNet.Item item = selectedItem();
 		int x = right.x0 + PAD;
 		int y = right.y0 + PAD;
-		long used = state.worn().keySet().stream().filter(k -> k.equals(slot.id) || k.startsWith(slot.id + ":")).count();
-		text(g, txt(slot.title + " (" + used + "/" + WardrobeNet.layeredCapacity(slot.id) + ")"), x, y + 2, MUTED);
+		text(g, txt(slot.title), x, y + 2, MUTED);
 		if (item != null) {
 			boolean price = buys(item) && !worn(item);
 			Component badge = txt(worn(item) ? (requirement(item) == null ? Tr.s("Надето", "Worn") : Tr.s("Выбран", "Selected")) : (item.owned() ? Tr.s("Есть", "Owned") : String.valueOf(item.price())));

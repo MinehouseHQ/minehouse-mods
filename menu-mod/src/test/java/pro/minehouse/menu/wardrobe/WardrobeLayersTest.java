@@ -22,14 +22,15 @@ class WardrobeLayersTest {
 	}
 
 	@Test
-	void orderedLayersBecomeFlatFittingKeysAndAllOffUsesOnlyBaseSlots() {
+	void onlyTheFirstOfOldLayersIsKeptOnePerSlot() {
 		var state = read("""
 				{"worn":{"hat":"legacy_hat","armor":"gold","pet":"dog"},
 				 "wornLayers":{"hat":["first","second","third"],"pet":[]}}
 				""");
-		assertEquals(Map.of("hat", "first", "hat:2", "second", "hat:3", "third", "armor", "gold"), state.worn());
+		assertEquals(Map.of("hat", "first", "armor", "gold"), state.worn());
 		assertEquals(List.of("hat", "armor"), state.wornSlots());
-		assertEquals(2, state.wornPosition("hat", "second"));
+		assertEquals(1, state.wornPosition("hat", "first"));
+		assertEquals(0, state.wornPosition("hat", "second"));
 		assertEquals(0, state.wornPosition("hat", "legacy_hat"));
 	}
 
@@ -61,45 +62,25 @@ class WardrobeLayersTest {
 	}
 
 	@Test
-	void tryingAThirdHatKeepsOthersAndChangingTabsResetsThePreview() {
-		var third = item("third", "hat", null, false);
-		var state = state(Map.of("hat", "first", "hat:2", "second", "armor", "gold"), third);
+	void tryingAHatReplacesTheWornOneAndChangingTabsResetsThePreview() {
+		var other = item("other", "hat", null, false);
+		var state = state(Map.of("hat", "first", "armor", "gold"), other);
 		var selection = new WardrobeScreen.Selection();
-		selection.pick(state, third, true);
-		assertEquals(Map.of("hat", "first", "hat:2", "second", "hat:3", "third", "armor", "gold"), selection.trying);
-		selection.update(state, state); // a dye/coin state refresh should not discard a tentative layer
-		assertEquals("third", selection.trying.get("hat:3"));
+		selection.pick(state, other, true);
+		assertEquals(Map.of("hat", "other", "armor", "gold"), selection.trying);
+		selection.update(state, state); // a dye/coin state refresh should not discard the preview
+		assertEquals("other", selection.trying.get("hat"));
 		selection.tab(state, WardrobeScreen.Slot.ARMOR);
 		assertEquals(state.worn(), selection.trying);
 	}
 
 	@Test
-	void aFourthBeltCannotBePreviewedWornOrBought() {
-		var fourth = item("fourth", "belt", null, false);
-		var owned = item("another", "belt", null, true);
-		var state = state(Map.of("belt", "first", "belt:2", "second", "belt:3", "third"), fourth, owned);
+	void aSecondBeltReplacesTheFirst() {
+		var next = item("next", "belt", null, true);
+		var state = state(Map.of("belt", "first"), next);
 		var selection = new WardrobeScreen.Selection();
-		selection.pick(state, fourth, true);
-		assertEquals(state.worn(), selection.trying);
-		assertEquals(WardrobeScreen.Action.NONE, WardrobeScreen.Action.forItem(state, fourth, null));
-		assertEquals(WardrobeScreen.Action.NONE, WardrobeScreen.Action.forItem(state, owned, null));
-	}
-
-	@Test
-	void coveringBackSwitchKeepsTheTwoPlainBackpacksAndSelectsNonPrimaryWornItems() {
-		var wings = item("wings", "backpack", "wings", true);
-		var cape = item("cape", "backpack", "cape", true);
-		var state = state(Map.of("backpack", "first", "backpack:2", "wings", "backpack:3", "third"), wings, cape);
-		var selection = new WardrobeScreen.Selection();
-		selection.tab(state, WardrobeScreen.Slot.BACKPACK);
-		assertEquals("wings", selection.selected);
-		assertEquals(WardrobeScreen.Action.REMOVE, WardrobeScreen.Action.forItem(state, wings, null));
-		selection.pick(state, cape, true);
-		assertEquals(Map.of("backpack", "first", "backpack:2", "cape", "backpack:3", "third"), selection.trying);
-		selection.pick(state, wings, true);
-		var after = state(Map.of("backpack", "first", "backpack:2", "third"), wings, cape);
-		selection.update(state, after);
-		assertNull(selection.selected);
-		assertEquals(after.worn(), selection.trying);
+		selection.pick(state, next, true);
+		assertEquals(Map.of("belt", "next"), selection.trying);
+		assertNotEquals(WardrobeScreen.Action.NONE, WardrobeScreen.Action.forItem(state, next, null));
 	}
 }

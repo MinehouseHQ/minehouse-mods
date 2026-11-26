@@ -80,19 +80,13 @@ class UiTreeTest {
 	}
 
 	@Test
-	void activeTabIsLabelledWhenThereIsRoom() {
+	void tabsAreIconsOnlyEvenWithRoomForTheName() {
 		UiTree.Node tabs = parse("{\"t\":\"tabs\",\"children\":[{\"t\":\"tab\",\"text\":\"Head\",\"active\":true},{\"t\":\"tab\"},{\"t\":\"tab\"},{\"t\":\"tab\"},{\"t\":\"tab\"}]}");
 		UiTree tree = new UiTree(MONO, true);
 		tree.layout(tabs, 10, 0, 128);
-		assertTrue(tree.labelled(tabs, tabs.children.get(0)));
-		assertEquals(124 - 4 * 18, tabs.children.get(0).w);
-		assertEquals(18, tabs.children.get(1).w);
+		assertFalse(tree.labelled(tabs, tabs.children.get(0)));
+		assertEquals(124 / 5, tabs.children.get(0).w);
 		assertEquals(12, tabs.children.get(0).x);
-
-		UiTree.Node narrow = parse("{\"t\":\"tabs\",\"children\":[{\"t\":\"tab\",\"text\":\"A very long name\",\"active\":true},{\"t\":\"tab\"},{\"t\":\"tab\"},{\"t\":\"tab\"},{\"t\":\"tab\"}]}");
-		tree.layout(narrow, 0, 0, 128);
-		assertFalse(tree.labelled(narrow, narrow.children.get(0)));
-		assertEquals(124 / 5, narrow.children.get(0).w);
 	}
 
 	@Test

@@ -80,7 +80,7 @@ class WardrobeTabTest {
 		// Minecraft 26.3 default bitmap font advances: with six tabs no title fits beside the icon.
 		var widths = Map.of("Голова", 36, "Плечо", 30, "Тело", 24, "Пояс", 24, "Броня", 30, "Питомцы", 43);
 		for (var active : WardrobeScreen.Slot.values()) {
-			assertEquals(widths.get(active.title) <= 9, new WardrobeScreen.TabRow(8, 8, active, widths.get(active.title)).labelled(), active.title);
+			assertFalse(new WardrobeScreen.TabRow(8, 8, active, widths.get(active.title)).labelled(), active.title);
 			var row = new WardrobeScreen.TabRow(8, 8, active, 30); // too long: icons only
 			assertFalse(row.labelled(), active.title);
 			int x = 18;
@@ -106,17 +106,13 @@ class WardrobeTabTest {
 	}
 
 	@Test
-	void shortActiveLabelIsInlineOnlyIfItFitsBesideTheIcon() {
+	void evenAShortNameIsOnlyATooltip() {
 		for (var active : WardrobeScreen.Slot.values()) {
-			// 124 inside the track - five 18px icons - 16px icon, 3px gap, 6px padding = 9px.
-			var row = new WardrobeScreen.TabRow(8, 8, active, 9);
-			assertTrue(row.labelled());
-			assertFalse(new WardrobeScreen.TabRow(8, 8, active, 10).labelled());
+			var row = new WardrobeScreen.TabRow(8, 8, active, 1);
+			assertFalse(row.labelled());
 			for (var slot : WardrobeScreen.Slot.values()) {
 				var box = row.tab(slot);
-				assertEquals(slot == active ? 34 : 18, box.w());
-				assertEquals(slot, row.hit(box.x0(), 27));
-				assertEquals(slot == active ? null : slot.title, row.tooltip(box.x0(), 27));
+				assertEquals(slot.title, row.tooltip(box.x0(), 27));
 			}
 		}
 	}

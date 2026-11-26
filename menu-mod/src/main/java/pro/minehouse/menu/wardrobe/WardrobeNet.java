@@ -142,11 +142,9 @@ public final class WardrobeNet {
 		return position == 1 ? slot : slot + ":" + position;
 	}
 
+	/** How many items a slot holds: one each since Cosmetics 0.30.0 (hats, backpacks and belts held 3). */
 	static int layeredCapacity(String slot) {
-		return switch (slot) {
-			case "hat", "backpack", "belt" -> 3;
-			default -> 1;
-		};
+		return 1;
 	}
 
 	public record State(int coins, String store, List<Item> items, Map<String, String> worn, ArmorVisibility armorVisibility,
