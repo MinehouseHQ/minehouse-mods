@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.ObjIntConsumer;
+import java.util.function.Supplier;
 
 import org.joml.Vector3f;
 import org.joml.Vector3fc;
@@ -27,8 +29,8 @@ import pro.minehouse.menu.mixin.LayerRenderStateAccess;
  * at most 20 a second, and picks the frame (custom_model_data "f&lt;n&gt;"). Drawn as they are, they
  * move in steps. What the client mod draws itself (your own cosmetics, other players' backpacks,
  * belts and hats) is drawn between two frames instead: both are resolved and every vertex is moved
- * part of the way from one to the next, at the render frame rate. Frames of one cosmetic come from
- * the same cubes in the same order, so their quads match one to one.
+ * part of the way from one to the next, at the render frame rate. Baked quads normally match in
+ * order, but a prop can add or remove quads. In that case, switch between whole poses.
  */
 public final class FrameBlend {
 	private FrameBlend() {
@@ -45,14 +47,31 @@ public final class FrameBlend {
 		if (pick != null && model != null) {
 			pick = pick.forMount(model.getPath());
 		}
-		ItemStack a = pick == null ? stack : at(stack, pick.a());
-		mc.getItemModelResolver().updateForTopItem(out, a, context, mc.level, null, 0);
-		if (pick == null || pick.a() == pick.b() || pick.t() <= 0.001f) {
+		if (pick == null) {
+			mc.getItemModelResolver().updateForTopItem(out, stack, context, mc.level, null, 0);
 			return;
 		}
-		ItemStackRenderState next = new ItemStackRenderState();
-		mc.getItemModelResolver().updateForTopItem(next, at(stack, pick.b()), context, mc.level, null, 0);
-		blend(out, next, pick.t());
+		resolve(out, pick, ItemStackRenderState::new, (state, frame) ->
+				mc.getItemModelResolver().updateForTopItem(state, at(stack, frame), context, mc.level, null, 0));
+	}
+
+	static void resolve(ItemStackRenderState out, CosmeticMotion.Pick pick, Supplier<ItemStackRenderState> scratch,
+			ObjIntConsumer<ItemStackRenderState> bake) {
+		// A completed transition must use the actual target model, not the source's layers/materials.
+		if (pick.t() >= 1f) {
+			bake.accept(out, pick.b());
+			return;
+		}
+		bake.accept(out, pick.a());
+		if (pick.a() == pick.b() || pick.t() <= 0.001f) {
+			return;
+		}
+		ItemStackRenderState next = scratch.get();
+		bake.accept(next, pick.b());
+		if (!tryBlend(out, next, pick.t()) && pick.t() >= 0.5f) {
+			// Re-resolve the whole pose, including transforms and layers, rather than mixing them.
+			bake.accept(out, pick.b());
+		}
 	}
 
 	/** The stack showing frame {@code frame}, the rest of its custom_model_data kept. */
@@ -70,21 +89,27 @@ public final class FrameBlend {
 		return out;
 	}
 
-	/** Moves {@code a}'s vertices {@code t} of the way to {@code b}'s. Layers or quads that don't match are left as they are. */
-	static void blend(ItemStackRenderState a, ItemStackRenderState b, float t) {
+	/** Moves {@code a}'s vertices towards {@code b}'s, or leaves {@code a} intact if the counts don't match. */
+	private static boolean tryBlend(ItemStackRenderState a, ItemStackRenderState b, float t) {
 		ItemStackRenderStateAccess sa = (ItemStackRenderStateAccess) a;
 		ItemStackRenderStateAccess sb = (ItemStackRenderStateAccess) b;
 		int n = sa.minehouse$activeLayerCount();
 		if (n != sb.minehouse$activeLayerCount()) {
-			return;
+			return false;
+		}
+		var layersA = sa.minehouse$layers();
+		var layersB = sb.minehouse$layers();
+		for (int i = 0; i < n; i++) {
+			ItemQuads qa = ((LayerRenderStateAccess) layersA[i]).minehouse$quads();
+			ItemQuads qb = ((LayerRenderStateAccess) layersB[i]).minehouse$quads();
+			if (qa == null || qb == null || qa.all().size() != qb.all().size()) {
+				return false;
+			}
 		}
 		for (int i = 0; i < n; i++) {
-			ItemStackRenderState.LayerRenderState la = sa.minehouse$layers()[i];
+			ItemStackRenderState.LayerRenderState la = layersA[i];
 			ItemQuads qa = ((LayerRenderStateAccess) la).minehouse$quads();
-			ItemQuads qb = ((LayerRenderStateAccess) sb.minehouse$layers()[i]).minehouse$quads();
-			if (qa == null || qb == null || qa.all().size() != qb.all().size()) {
-				continue;
-			}
+			ItemQuads qb = ((LayerRenderStateAccess) layersB[i]).minehouse$quads();
 			List<BakedQuad> out = new ArrayList<>(qa.all().size());
 			for (int q = 0; q < qa.all().size(); q++) {
 				BakedQuad x = qa.all().get(q);
@@ -95,6 +120,7 @@ public final class FrameBlend {
 			}
 			la.setQuads(ItemQuads.split(out));
 		}
+		return true;
 	}
 
 	private static Vector3fc lerp(Vector3fc a, Vector3fc b, float t) {
@@ -163,7 +189,7 @@ public final class FrameBlend {
 	 * A pet (Shorokh and the like) walks, runs, sniffs and greets in clips the server picks from its
 	 * own state, at 10 or 12.5 frames a second. Instead of guessing the next frame, this draws the pose
 	 * one frame behind: from the frame before the newest to the newest, over the time the server took
-	 * between them. A change of clip then blends from the old pose into the new one, with no jump.
+	 * between them. A change of clip blends smoothly when the poses have matching topology.
 	 */
 	public static void pet(Display.ItemDisplay display, ItemStackRenderState out) {
 		Display.ItemDisplay.ItemRenderState item = display.itemRenderState();
