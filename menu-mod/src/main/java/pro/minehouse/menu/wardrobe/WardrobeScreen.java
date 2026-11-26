@@ -136,11 +136,24 @@ public final class WardrobeScreen extends Screen implements WardrobeNet.FittingV
 
 		void pick(WardrobeNet.State state, WardrobeNet.Item item, boolean canTry) {
 			selected = item == null ? null : item.id();
-			if (item == null || !canTry || item.id().equals(state.worn().get(item.slot()))) {
+			if (item == null || !canTry || state.wornPosition(item.slot(), item.id()) != 0) {
 				trying = state.worn();
 			} else {
 				var preview = new HashMap<>(state.worn());
-				preview.put(item.slot(), item.id());
+				int capacity = state.multiWear() ? WardrobeNet.layeredCapacity(item.slot()) : 1;
+				int position = 0;
+				if (capacity == 1) position = 1;
+				else if ("wings".equals(item.kind()) || "cape".equals(item.kind())) {
+					for (int i = 1; i <= capacity; i++) {
+						var old = state.item(preview.get(WardrobeNet.wearKey(item.slot(), i)));
+						if (old != null && ("wings".equals(old.kind()) || "cape".equals(old.kind()))) { position = i; break; }
+					}
+				}
+				if (position == 0) for (int i = 1; i <= capacity; i++) {
+					if (!preview.containsKey(WardrobeNet.wearKey(item.slot(), i))) { position = i; break; }
+				}
+				if (position == 0) { trying = state.worn(); return; }
+				preview.put(WardrobeNet.wearKey(item.slot(), position), item.id());
 				trying = Map.copyOf(preview);
 			}
 		}
@@ -148,20 +161,23 @@ public final class WardrobeScreen extends Screen implements WardrobeNet.FittingV
 		void update(WardrobeNet.State before, WardrobeNet.State after) {
 			var item = after.item(selected);
 			// A removal (including the feature being switched off) is not a new try-on.
-			if (item != null && selected.equals(before.worn().get(item.slot())) && !selected.equals(after.worn().get(item.slot()))) {
+			if (item != null && before.wornPosition(item.slot(), selected) != 0 && after.wornPosition(item.slot(), selected) == 0) {
 				item = null;
 			}
-			pick(after, item, item != null && item.id().equals(trying.get(item.slot())));
+			pick(after, item, item != null && trying.containsValue(item.id()));
 		}
 
 		String petPreviewId(WardrobeNet.State state) {
 			var item = state.item(selected);
-			return item != null && Slot.PET.lists(item) && !item.id().equals(state.worn().get(Slot.PET.id)) ? item.id() : null;
+			return item != null && Slot.PET.lists(item) && state.wornPosition(Slot.PET.id, item.id()) == 0 ? item.id() : null;
 		}
 
 		void tab(WardrobeNet.State state, Slot slot) {
-			var item = state.item(state.worn().get(slot.id));
-			pick(state, item != null && slot.lists(item) ? item : null, true);
+			for (int i = 1; i <= WardrobeNet.layeredCapacity(slot.id); i++) {
+				var item = state.item(state.worn().get(WardrobeNet.wearKey(slot.id, i)));
+				if (item != null && slot.lists(item)) { pick(state, item, true); return; }
+			}
+			pick(state, null, false);
 		}
 	}
 
@@ -347,7 +363,20 @@ public final class WardrobeScreen extends Screen implements WardrobeNet.FittingV
 	}
 
 	private boolean worn(WardrobeNet.Item item) {
-		return item.id().equals(state.worn().get(item.slot()));
+		return state.wornPosition(item.slot(), item.id()) != 0;
+	}
+
+	private static boolean full(WardrobeNet.State state, WardrobeNet.Item item) {
+		if (item == null || !state.multiWear() || WardrobeNet.layeredCapacity(item.slot()) == 1
+				|| state.wornPosition(item.slot(), item.id()) != 0) return false;
+		if ("wings".equals(item.kind()) || "cape".equals(item.kind())) {
+			for (String id : state.worn().values()) {
+				var old = state.item(id);
+				if (old != null && old.slot().equals(item.slot()) && ("wings".equals(old.kind()) || "cape".equals(old.kind()))) return false;
+			}
+		}
+		return state.worn().keySet().stream().filter(k -> k.equals(item.slot()) || k.startsWith(item.slot() + ":")).count()
+				>= WardrobeNet.layeredCapacity(item.slot());
 	}
 
 	private String requirement(WardrobeNet.Item item) {
@@ -813,10 +842,15 @@ public final class WardrobeScreen extends Screen implements WardrobeNet.FittingV
 			if (item.owned()) return requirement == null ? WEAR : NONE;
 			return coins >= item.price() ? BUY : NONE;
 		}
+
+		static Action forItem(WardrobeNet.State state, WardrobeNet.Item item, String requirement) {
+			if (item == null) return NONE;
+			return full(state, item) ? NONE : forItem(item, state.wornPosition(item.slot(), item.id()) != 0, requirement, state.coins());
+		}
 	}
 
 	private Action action(WardrobeNet.Item item) {
-		return Action.forItem(item, item != null && worn(item), requirement(item), state.coins());
+		return Action.forItem(state, item, requirement(item));
 	}
 
 	/** All activation paths re-read the equipped stacks, independently of the last frame. */
@@ -833,7 +867,8 @@ public final class WardrobeScreen extends Screen implements WardrobeNet.FittingV
 		WardrobeNet.Item item = selectedItem();
 		int x = right.x0 + PAD;
 		int y = right.y0 + PAD;
-		text(g, txt(slot.title), x, y + 2, MUTED);
+		long used = state.worn().keySet().stream().filter(k -> k.equals(slot.id) || k.startsWith(slot.id + ":")).count();
+		text(g, txt(slot.title + " (" + used + "/" + WardrobeNet.layeredCapacity(slot.id) + ")"), x, y + 2, MUTED);
 		if (item != null) {
 			boolean price = buys(item) && !worn(item);
 			Component badge = txt(worn(item) ? (requirement(item) == null ? Tr.s("Надето", "Worn") : Tr.s("Выбран", "Selected")) : (item.owned() ? Tr.s("Есть", "Owned") : String.valueOf(item.price())));
@@ -969,7 +1004,8 @@ public final class WardrobeScreen extends Screen implements WardrobeNet.FittingV
 		if (Slot.PET.lists(item)) {
 			petPreview(null); // follow authoritative equipment after the action, even if it is rejected
 		}
-		WardrobeNet.send(remove ? "remove" : "wear", remove ? "slot" : "id", remove ? item.slot() : item.id());
+		if (remove) WardrobeNet.send(WardrobeNet.removeAction(state, item.slot(), item.id()));
+		else WardrobeNet.send("wear", "id", item.id());
 	}
 
 	/** The server may expire the fitting while the player is reading the store confirmation. */
@@ -1067,9 +1103,8 @@ public final class WardrobeScreen extends Screen implements WardrobeNet.FittingV
 			}
 			if (takeOffButton().over(mx, my) && !state.worn().isEmpty()) {
 				petPreview(null);
-				for (String s : state.worn().keySet()) {
-					WardrobeNet.send("remove", "slot", s);
-				}
+				if (state.multiWear()) WardrobeNet.send("off_all", null, null);
+				else for (String slot : state.wornSlots()) WardrobeNet.send("remove", "slot", slot);
 				selection.pick(state, null, false);
 				return true;
 			}

@@ -29,6 +29,7 @@ import pro.minehouse.wardrobe.IskrikTimeline;
  */
 public final class WardrobeNet {
 	static final String NS = "minehouse-cosmetics";
+	private static final List<String> SLOTS = List.of("hat", "backpack", "belt", "armor", "pet");
 
 	/** Only views owned by the fitting session may be closed by its end packet. */
 	interface FittingView {
@@ -66,6 +67,14 @@ public final class WardrobeNet {
 		public Type<ActionPayload> type() {
 			return TYPE;
 		}
+	}
+
+	/** Receiver registration advertises support for the server's extra display passengers. */
+	public record MultiWear() implements CustomPacketPayload {
+		static final Type<MultiWear> TYPE = new Type<>(Identifier.fromNamespaceAndPath(NS, "multi_wear"));
+		static final StreamCodec<FriendlyByteBuf, MultiWear> CODEC = StreamCodec.unit(new MultiWear());
+
+		@Override public Type<MultiWear> type() { return TYPE; }
 	}
 
 	/**
@@ -127,7 +136,35 @@ public final class WardrobeNet {
 		}
 	}
 
-	public record State(int coins, String store, List<Item> items, Map<String, String> worn, ArmorVisibility armorVisibility) {
+	/** Worn outfits and scripted fitting previews share flat keys (hat, hat:2, hat:3). */
+	static String wearKey(String slot, int position) {
+		return position == 1 ? slot : slot + ":" + position;
+	}
+
+	static int layeredCapacity(String slot) {
+		return switch (slot) {
+			case "hat", "backpack", "belt" -> 3;
+			default -> 1;
+		};
+	}
+
+	public record State(int coins, String store, List<Item> items, Map<String, String> worn, ArmorVisibility armorVisibility,
+			boolean multiWear) {
+		public State(int coins, String store, List<Item> items, Map<String, String> worn, ArmorVisibility armorVisibility) {
+			this(coins, store, items, worn, armorVisibility, false);
+		}
+
+		List<String> wornSlots() {
+			return SLOTS.stream().filter(worn::containsKey).toList();
+		}
+
+		int wornPosition(String slot, String id) {
+			for (int i = 1; i <= layeredCapacity(slot); i++) {
+				if (id.equals(worn.get(wearKey(slot, i)))) return i;
+			}
+			return 0;
+		}
+
 		Item item(String id) {
 			for (Item item : items) {
 				if (item.id().equals(id)) {
@@ -146,10 +183,12 @@ public final class WardrobeNet {
 
 	public static void init() {
 		PayloadTypeRegistry.clientboundPlay().register(FittingEnd.TYPE, FittingEnd.CODEC.cast());
+		PayloadTypeRegistry.clientboundPlay().register(MultiWear.TYPE, MultiWear.CODEC.cast());
 		PayloadTypeRegistry.clientboundPlay().register(StatePayload.TYPE, StatePayload.CODEC.cast());
 		PayloadTypeRegistry.serverboundPlay().register(ActionPayload.TYPE, ActionPayload.CODEC.cast());
 		ClientPlayNetworking.registerGlobalReceiver(StatePayload.TYPE, (payload, context) -> receive(context.client(), payload.json()));
 		ClientPlayNetworking.registerGlobalReceiver(FittingEnd.TYPE, (payload, context) -> payload.apply(context.client().gui.screen()));
+		ClientPlayNetworking.registerGlobalReceiver(MultiWear.TYPE, (payload, context) -> {});
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> state = null);
 	}
 
@@ -176,15 +215,24 @@ public final class WardrobeNet {
 	}
 
 	static void send(String action, String key, String value) {
-		if (!available()) {
-			return;
-		}
-		JsonObject o = new JsonObject();
-		o.addProperty("action", action);
-		if (key != null) {
-			o.addProperty(key, value);
-		}
-		ClientPlayNetworking.send(new ActionPayload(o.toString()));
+		send(action(action, key, value));
+	}
+
+	static JsonObject removeAction(State state, String slot, String id) {
+		JsonObject request = action("remove", "slot", slot);
+		if (state.multiWear() && id != null) request.addProperty("id", id);
+		return request;
+	}
+
+	private static JsonObject action(String action, String key, String value) {
+		JsonObject request = new JsonObject();
+		request.addProperty("action", action);
+		if (key != null) request.addProperty(key, value);
+		return request;
+	}
+
+	static void send(JsonObject request) {
+		if (available()) ClientPlayNetworking.send(new ActionPayload(request.toString()));
 	}
 
 	private static Map<String, Clip> clips(JsonObject o) {
@@ -204,10 +252,20 @@ public final class WardrobeNet {
 		JsonObject root;
 		try {
 			root = JsonParser.parseString(json).getAsJsonObject();
+			state = parseState(root);
 		} catch (RuntimeException e) {
 			MinehouseMenu.LOG.warn("Bad wardrobe state from the server", e);
 			return;
 		}
+		if (client.gui.screen() instanceof WardrobeScreen screen) {
+			screen.update(state);
+			if (root.get("open").getAsBoolean()) screen.claimFitting();
+		} else if (root.get("open").getAsBoolean()) {
+			client.gui.setScreen(new WardrobeScreen(state));
+		}
+	}
+
+	static State parseState(JsonObject root) {
 		List<Item> items = new ArrayList<>();
 		for (JsonElement e : root.getAsJsonArray("items")) {
 			JsonObject o = e.getAsJsonObject();
@@ -222,15 +280,19 @@ public final class WardrobeNet {
 					o.get("flatIcon") instanceof com.google.gson.JsonPrimitive flag && flag.isBoolean() && flag.getAsBoolean()));
 		}
 		Map<String, String> worn = new LinkedHashMap<>();
-		root.getAsJsonObject("worn").entrySet().forEach(en -> worn.put(en.getKey(), en.getValue().getAsString()));
-		state = new State(root.get("coins").getAsInt(), root.get("store").getAsString(), List.copyOf(items), Map.copyOf(worn),
-				ArmorVisibility.read(root));
-
-		if (client.gui.screen() instanceof WardrobeScreen screen) {
-			screen.update(state);
-			if (root.get("open").getAsBoolean()) screen.claimFitting();
-		} else if (root.get("open").getAsBoolean()) {
-			client.gui.setScreen(new WardrobeScreen(state));
+		JsonObject legacy = root.getAsJsonObject("worn");
+		JsonObject layers = root.getAsJsonObject("wornLayers");
+		for (String slot : SLOTS) {
+			if (layers != null && layers.has(slot)) {
+				var ids = layers.getAsJsonArray(slot);
+				for (int i = 0; i < Math.min(ids.size(), layeredCapacity(slot)); i++) {
+					worn.put(wearKey(slot, i + 1), ids.get(i).getAsString());
+				}
+			} else if (legacy.has(slot)) {
+				worn.put(slot, legacy.get(slot).getAsString());
+			}
 		}
+		return new State(root.get("coins").getAsInt(), root.get("store").getAsString(), List.copyOf(items), Map.copyOf(worn),
+				ArmorVisibility.read(root), layers != null);
 	}
 }

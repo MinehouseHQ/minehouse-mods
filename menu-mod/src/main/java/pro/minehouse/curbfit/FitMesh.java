@@ -28,8 +28,10 @@ final class FitMesh {
             List<Cube> baseMesh = new ArrayList<>(), outerMesh = new ArrayList<>();
             Cube uv = ownCube(armor.getChild(bone.name)); // slot filters, including waist on leggings
             if (uv != null) {
-                fit(ownCube(base), uv, null, baseMesh);
-                fit(ownCube(outer), uv, mask, outerMesh);
+                Cube baseSkin = ownCube(base);
+                fit(baseSkin, uv, null, null, baseMesh);
+                Cube neckline = slot == EquipmentSlot.CHEST && bone.name.equals("body") ? baseSkin : null;
+                fit(ownCube(outer), uv, mask, neckline, outerMesh);
             }
             ModelPart patch = part(outer,outerMesh,Map.of());
             bones.put(bone.name,part(base,baseMesh,Map.of(bone.overlay,patch)));
@@ -45,7 +47,7 @@ final class FitMesh {
         part.visit(new PoseStack(), (pose,path,index,cube)->{ if (path.isEmpty()) out[0]=cube; });
         return out[0];
     }
-    private static void fit(Cube skin,Cube armor,SkinMask mask,List<Cube> out) {
+    private static void fit(Cube skin,Cube armor,SkinMask mask,Cube necklineBase,List<Cube> out) {
         for (Polygon face : skin.polygons) {
             Polygon tex = Arrays.stream(armor.polygons).filter(f -> f.normal().equals(face.normal())).findFirst().orElseThrow();
             Vertex[] a=face.vertices(), t=new Vertex[4];
@@ -60,6 +62,7 @@ final class FitMesh {
                 }
             }
             if(mask==null) { emit(face,t,0,0,1,1,out); continue; }
+            Polygon reference = necklineBase != null && face.normal().z()==-1 ? facing(necklineBase, face) : null;
             int w=Math.round(64*(Math.abs(a[1].u()-a[0].u())+Math.abs(a[1].v()-a[0].v())));
             int h=Math.round(64*(Math.abs(a[3].u()-a[0].u())+Math.abs(a[3].v()-a[0].v())));
             // Walk in face-local coordinates; merge opaque rectangles before emitting.
@@ -73,9 +76,27 @@ final class FitMesh {
                 while(x1<w && filled[y][x1]) x1++;
                 rows: while(y1<h) { for(int i=x;i<x1;i++) if(!filled[y1][i]) break rows; y1++; }
                 for(int j=y;j<y1;j++) Arrays.fill(filled[j],x,x1,false);
-                emit(face,t,(float)x/w,(float)y/h,(float)x1/w,(float)y1/h,out);
+                float s0=(float)x/w, r0=(float)y/h, s1=(float)x1/w, r1=(float)y1/h;
+                if(reference==null) emit(face,t,s0,r0,s1,r1,out);
+                else emitNeckline(face,reference,t,s0,r0,s1,r1,out);
             }
         }
+    }
+    private static Polygon facing(Cube cube, Polygon face) {
+        return Arrays.stream(cube.polygons).filter(p -> p.normal().equals(face.normal())).findFirst().orElseThrow();
+    }
+    /** Clip to the actual opaque jacket cells, then sample at the same XY as the bare skin. */
+    private static void emitNeckline(Polygon jacket,Polygon base,Vertex[] uv,float s0,float r0,float s1,float r1,List<Cube> out) {
+        var j=jacket.vertices(); var b=base.vertices();
+        // Native north faces run along X from corner 0 to 1 and Y from 0 to 3.
+        float sx=b[1].x()-b[0].x(), sy=b[3].y()-b[0].y();
+        float x0=Math.max(0,(mix(j[0].x(),j[1].x(),j[3].x(),s0,r0)-b[0].x())/sx);
+        float x1=Math.min(1,(mix(j[0].x(),j[1].x(),j[3].x(),s1,r1)-b[0].x())/sx);
+        float y0=Math.max(0,(mix(j[0].y(),j[1].y(),j[3].y(),s0,r0)-b[0].y())/sy);
+        float y1=Math.min(1,(mix(j[0].y(),j[1].y(),j[3].y(),s1,r1)-b[0].y())/sy);
+        if(x1<=x0 || y1<=y0) return;
+        Vertex[] plane=Arrays.stream(b).map(v -> new Vertex(v.x(),v.y(),j[0].z(),v.u(),v.v())).toArray(Vertex[]::new);
+        emit(new Polygon(plane,base.normal()),uv,x0,y0,x1,y1,out);
     }
     private static float mix(float a,float b,float d,float s,float r) { return a+(b-a)*s+(d-a)*r; }
     private static float u(Vertex[] t,float s,float r){return mix(t[0].u(),t[1].u(),t[3].u(),s,r);}

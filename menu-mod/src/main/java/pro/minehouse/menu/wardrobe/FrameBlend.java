@@ -27,10 +27,9 @@ import pro.minehouse.menu.mixin.LayerRenderStateAccess;
 /**
  * Smooth animated cosmetics. The server bakes a Blockbench animation into one item model per frame,
  * at most 20 a second, and picks the frame (custom_model_data "f&lt;n&gt;"). Drawn as they are, they
- * move in steps. What the client mod draws itself (your own cosmetics, other players' backpacks,
- * belts and hats) is drawn between two frames instead: both are resolved and every vertex is moved
- * part of the way from one to the next, at the render frame rate. Baked quads normally match in
- * order, but a prop can add or remove quads. In that case, switch between whole poses.
+ * move in steps. Local cosmetics, previews and ground pets can blend between poses by moving
+ * each vertex part of the way to the next pose. Baked quads normally match in order, but a prop can
+ * add or remove quads. In that case, switch between whole poses.
  */
 public final class FrameBlend {
 	private FrameBlend() {
@@ -141,40 +140,6 @@ public final class FrameBlend {
 		} catch (NumberFormatException e) {
 			return -1;
 		}
-	}
-
-	private record Seen(int frame, long at) {
-	}
-
-	/** Entity id and slot → the frame the server last sent and when it came. */
-	private static final Map<String, Seen> seen = new HashMap<>();
-
-	/**
-	 * Where another player's cosmetic is: the frame the server sent, on its way to the next one in
-	 * its clip, by the time since it came. When the server's next frame comes, it is where the blend
-	 * got to, so it goes on without a jump; if it is late, the blend waits on the next frame.
-	 */
-	static CosmeticMotion.Pick observed(int entityId, String slot, ItemStack stack) {
-		Identifier model = stack.get(DataComponents.ITEM_MODEL);
-		WardrobeNet.State st = WardrobeNet.state;
-		WardrobeNet.Item item = st == null || model == null ? null : st.item(model.getPath());
-		int frame = frame(stack);
-		if (frame < 0 || item == null) {
-			return null;
-		}
-		long now = System.currentTimeMillis();
-		String key = entityId + "/" + slot;
-		Seen last = seen.get(key);
-		if (last == null || last.frame() != frame) {
-			if (seen.size() > 512) {
-				seen.clear();
-			}
-			seen.put(key, last = new Seen(frame, now));
-		}
-		WardrobeNet.Clip clip = item.reacts() ? item.clipOf(frame) : new WardrobeNet.Clip(0, Math.max(item.frames(), frame + 1), true);
-		int next = clip.next(frame);
-		float t = Math.min(1f, (now - last.at()) * item.fps() / 1000f);
-		return new CosmeticMotion.Pick(frame, next, t);
 	}
 
 	// ------------------------------------------------------------------ pets

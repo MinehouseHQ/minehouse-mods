@@ -1,6 +1,10 @@
 package pro.minehouse.menu.wardrobe;
 
+import java.util.List;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.math.Axis;
@@ -25,6 +29,7 @@ import net.minecraft.world.entity.Display;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.Pose;
+import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.CustomModelData;
 
@@ -33,8 +38,8 @@ import net.minecraft.world.item.component.CustomModelData;
  * packets other players get (your client draws you from your own inventory), so the menu mod puts
  * what you wear onto your own render state: the hat in the helmet's place, the backpack as a layer
  * placed like the server's item display (at the neck, following the body), the belt at the hips.
- * Animated ones are drawn between frames ({@link FrameBlend}), and yours react to what you do
- * ({@link CosmeticMotion}).
+ * Your own animations blend and react to what you do ({@link CosmeticMotion}); other players'
+ * cosmetics use the server's latest confirmed pose.
  */
 public final class WardrobeSelf {
 	static final RenderStateDataKey<ItemStackRenderState> BACKPACK = RenderStateDataKey.create(() -> "minehouse:backpack");
@@ -47,6 +52,10 @@ public final class WardrobeSelf {
 	static final RenderStateDataKey<ItemStackRenderState> BELT = RenderStateDataKey.create(() -> "minehouse:belt");
 	/** The belt takes the legs away (spider legs): see PlayerModelMixin. */
 	static final RenderStateDataKey<Boolean> HIDE_LEGS = RenderStateDataKey.create(() -> "minehouse:hide_legs");
+	static final RenderStateDataKey<List<ItemStackRenderState>> EXTRA_HATS = RenderStateDataKey.create(() -> "minehouse:extra_hats");
+	static final RenderStateDataKey<List<ItemStackRenderState>> EXTRA_BACKPACKS = RenderStateDataKey.create(() -> "minehouse:extra_backpacks");
+	static final RenderStateDataKey<List<ItemStackRenderState>> EXTRA_BELTS = RenderStateDataKey.create(() -> "minehouse:extra_belts");
+	static final RenderStateDataKey<List<ItemStackRenderState>> EXTRA_SHOULDERS = RenderStateDataKey.create(() -> "minehouse:extra_shoulders");
 
 	// A distinct wire ID lets pre-shoulder clients leave this passenger to the vanilla renderer.
 	private static final Identifier KARAT_DISPLAY = Identifier.fromNamespaceAndPath("minehouse-cosmetics-display", "karat");
@@ -62,6 +71,7 @@ public final class WardrobeSelf {
 			if (renderer instanceof AvatarRenderer<?> avatar) {
 				helper.register(new BackpackLayer(avatar));
 				helper.register(new BeltLayer(avatar));
+				helper.register(new HatLayer(avatar));
 			}
 		});
 	}
@@ -76,10 +86,12 @@ public final class WardrobeSelf {
 			return false;
 		}
 		Display.ItemDisplay.ItemRenderState item = display.itemRenderState();
-		if (item == null) {
-			return false;
-		}
-		Identifier model = item.itemStack().get(DataComponents.ITEM_MODEL);
+		// Vanilla can still draw its cached cosmetic after the tracked stack has been cleared.
+		return isCosmeticStack(display.getSlot(0).get()) || (item != null && isCosmeticStack(item.itemStack()));
+	}
+
+	private static boolean isCosmeticStack(ItemStack stack) {
+		Identifier model = stack.get(DataComponents.ITEM_MODEL);
 		return model != null && (WardrobeNet.NS.equals(model.getNamespace()) || KARAT_DISPLAY.equals(model));
 	}
 
@@ -91,58 +103,17 @@ public final class WardrobeSelf {
 		state.setData(PREVIEW_YAW, null);
 		state.setData(BELT, null);
 		state.setData(HIDE_LEGS, null);
+		state.setData(EXTRA_HATS, new ArrayList<>());
+		state.setData(EXTRA_BACKPACKS, new ArrayList<>());
+		state.setData(EXTRA_BELTS, new ArrayList<>());
+		state.setData(EXTRA_SHOULDERS, new ArrayList<>());
 		Minecraft mc = Minecraft.getInstance();
 		if (suppress || mc.player == null) {
 			return;
 		}
 		if (avatar != mc.player) {
-			// Their hat (the server put it in the helmet slot): the same model, between frames.
-			// headEquipment is armor-only in vanilla: paper hats are in the avatar's HEAD slot.
-			ItemStack head = avatar.getItemBySlot(EquipmentSlot.HEAD);
-			Identifier headModel = head.get(DataComponents.ITEM_MODEL);
-			boolean cosmeticHead = !state.headItem.isEmpty() && headModel != null && WardrobeNet.NS.equals(headModel.getNamespace());
-			if (cosmeticHead) {
-				CosmeticMotion.Pick pick = FrameBlend.observed(avatar.getId(), "hat", head);
-				if (KaratMount.onShoulder(headModel.getPath(), FrameBlend.frame(head))) {
-					// Older server: shoulder frames still arrive as head equipment. Move, don't duplicate.
-					setShoulder(state, head, pick);
-					state.headItem.clear();
-				} else if (pick != null && pick.a() != pick.b()) {
-					FrameBlend.resolve(state.headItem, head, pick);
-				}
-			}
-			for (Entity passenger : avatar.getPassengers()) {
-				if (isCosmeticDisplay(passenger)) {
-					ItemStack stack = ((Display.ItemDisplay) passenger).itemRenderState().itemStack();
-					// custom_model_data: "f<n>", then the slot (Cosmetics 0.12.0+; older ones: the back);
-					// flag 0: it hides the legs.
-					CustomModelData cmd = stack.get(DataComponents.CUSTOM_MODEL_DATA);
-					String slot = cmd == null ? null : cmd.getString(1);
-					if ("hat".equals(slot)) {
-						// Equipment wins if the two packets briefly overlap at a perch change.
-						if (!cosmeticHead && KaratMount.onShoulder(stack.get(DataComponents.ITEM_MODEL).getPath(), FrameBlend.frame(stack))) {
-							setShoulder(state, stack, FrameBlend.observed(avatar.getId(), "hat", stack));
-						}
-						continue;
-					}
-					if (!visible(state)) {
-						continue;
-					}
-					boolean belt = "belt".equals(slot);
-					ItemStackRenderState model = new ItemStackRenderState();
-					FrameBlend.resolve(model, stack, FrameBlend.observed(avatar.getId(), belt ? "belt" : "backpack", stack));
-					if (belt) {
-						state.setData(BELT, model);
-						if (Boolean.TRUE.equals(cmd.getBoolean(0))) {
-							hideLegs(state);
-						}
-					} else if (state.getData(BACKPACK) == null) {
-						state.setData(BACKPACK, model);
-						// The model is named after the cosmetic, which the wardrobe state describes.
-						state.setData(BACK_KIND, kindOf(stack.get(DataComponents.ITEM_MODEL).getPath()));
-					}
-				}
-			}
+			extractObserved(avatar.getItemBySlot(EquipmentSlot.HEAD), avatar.getPassengers(), state,
+					(out, stack) -> mc.getItemModelResolver().updateForTopItem(out, stack, ItemDisplayContext.HEAD, mc.level, null, 0));
 			return;
 		}
 		WardrobeNet.State net = WardrobeNet.state;
@@ -174,12 +145,20 @@ public final class WardrobeSelf {
 			int frame = pick == null ? -1 : pick.a();
 			ItemStack stack = WardrobeScreen.stack(hat, frame);
 			if (KaratMount.onShoulder(hat, frame)) {
-				setShoulder(state, stack, pick); // keep vanilla's helmet, skull or other head item
+				// Keep vanilla's helmet, skull or other head item.
+				setShoulder(state, out -> FrameBlend.resolve(out, stack, pick));
 			} else {
 				FrameBlend.resolve(state.headItem, stack, pick);
 				state.wornHeadType = null;
 				state.headEquipment = stack;
 			}
+		}
+		for (int i = 2; i <= 3; i++) {
+			String id = worn.get(WardrobeNet.wearKey("hat", i));
+			if (id == null) continue;
+			CosmeticMotion.Pick pick = CosmeticMotion.pick(net.item(id), idleOnly);
+			ItemStack stack = WardrobeScreen.stack(id, pick == null ? -1 : pick.a());
+			addModel(state, KaratMount.onShoulder(id, pick == null ? -1 : pick.a()) ? EXTRA_SHOULDERS : EXTRA_HATS, stack, pick);
 		}
 		String back = worn.get("backpack");
 		String kind = back == null ? null : kindOf(back);
@@ -188,6 +167,11 @@ public final class WardrobeSelf {
 			FrameBlend.resolve(model, WardrobeScreen.stack(back), CosmeticMotion.pick(net.item(back), idleOnly));
 			state.setData(BACKPACK, model);
 			state.setData(BACK_KIND, kind);
+		}
+		for (int i = 2; i <= 3 && visible(state); i++) {
+			String id = worn.get(WardrobeNet.wearKey("backpack", i));
+			String k = id == null ? null : kindOf(id);
+			if (id != null && !(k != null && underGlider(state))) addModel(state, EXTRA_BACKPACKS, WardrobeScreen.stack(id), CosmeticMotion.pick(net.item(id), idleOnly));
 		}
 		String belt = worn.get("belt");
 		if (belt != null && visible(state)) {
@@ -199,14 +183,97 @@ public final class WardrobeSelf {
 				hideLegs(state);
 			}
 		}
+		for (int i = 2; i <= 3 && visible(state); i++) {
+			String id = worn.get(WardrobeNet.wearKey("belt", i));
+			if (id != null) {
+				addModel(state, EXTRA_BELTS, WardrobeScreen.stack(id), CosmeticMotion.pick(net.item(id), idleOnly));
+				WardrobeNet.Item item = net.item(id); if (item != null && item.hideLegs()) hideLegs(state);
+			}
+		}
 	}
 
-	private static void setShoulder(AvatarRenderState state, ItemStack stack, CosmeticMotion.Pick pick) {
+	private static void addModel(AvatarRenderState state, RenderStateDataKey<List<ItemStackRenderState>> key, ItemStack stack, CosmeticMotion.Pick pick) {
+		ItemStackRenderState model = new ItemStackRenderState();
+		FrameBlend.resolve(model, stack, pick);
+		state.getData(key).add(model);
+	}
+
+	private static void addModel(AvatarRenderState state, RenderStateDataKey<List<ItemStackRenderState>> key, Consumer<ItemStackRenderState> bake) {
+		ItemStackRenderState model = new ItemStackRenderState();
+		bake.accept(model);
+		extraList(state, key).add(model);
+	}
+
+	/** Tests build a bare render state; extract() normally sets these lists first. */
+	private static List<ItemStackRenderState> extraList(AvatarRenderState state, RenderStateDataKey<List<ItemStackRenderState>> key) {
+		var models = state.getData(key);
+		if (models == null) state.setData(key, models = new ArrayList<>());
+		return models;
+	}
+
+	/** Resolve the received stack as-is: a server may hold a frame or jump to another clip. */
+	static void extractObserved(ItemStack head, List<Entity> passengers, AvatarRenderState state,
+			BiConsumer<ItemStackRenderState, ItemStack> bake) {
+		// Vanilla already resolved the received HEAD stack. Only migrate old-server shoulder poses.
+		Identifier headModel = head.get(DataComponents.ITEM_MODEL);
+		boolean cosmeticHead = !state.headItem.isEmpty() && headModel != null && WardrobeNet.NS.equals(headModel.getNamespace());
+		if (cosmeticHead && KaratMount.onShoulder(headModel.getPath(), FrameBlend.frame(head))) {
+			setShoulder(state, out -> bake.accept(out, head));
+			state.headItem.clear();
+		}
+		for (Entity passenger : passengers) {
+			if (!(passenger instanceof Display.ItemDisplay display) || !(display.getVehicle() instanceof Avatar)) continue;
+			// Metadata updates the tracked slot immediately; Display.tick refreshes the render cache later.
+			ItemStack stack = display.getSlot(0).get();
+			if (!isCosmeticStack(stack)) continue;
+			// custom_model_data: "f<n>", then the slot (Cosmetics 0.12.0+; older ones: the back);
+			// flag 0: it hides the legs.
+			CustomModelData cmd = stack.get(DataComponents.CUSTOM_MODEL_DATA);
+			String slot = cmd == null ? null : cmd.getString(1);
+			// Extra layers (Cosmetics 0.22+, flag "layer"): drawn beside the primary one.
+			boolean layer = cmd != null && "layer".equals(cmd.getString(2));
+			if ("hat".equals(slot)) {
+				boolean shoulder = KaratMount.onShoulder(stack.get(DataComponents.ITEM_MODEL).getPath(), FrameBlend.frame(stack));
+				// Equipment wins if the two packets briefly overlap at a perch change.
+				if (!layer && !cosmeticHead && shoulder) {
+					setShoulder(state, out -> bake.accept(out, stack));
+				} else if (layer) {
+					addModel(state, shoulder ? EXTRA_SHOULDERS : EXTRA_HATS, out -> bake.accept(out, stack));
+				}
+				continue;
+			}
+			if (!visible(state)) {
+				continue;
+			}
+			boolean belt = "belt".equals(slot);
+			ItemStackRenderState model = new ItemStackRenderState();
+			bake.accept(model, stack);
+			if (belt) {
+				if (!layer && state.getData(BELT) == null) state.setData(BELT, model); else extraList(state, EXTRA_BELTS).add(model);
+				if (Boolean.TRUE.equals(cmd.getBoolean(0))) {
+					hideLegs(state);
+				}
+			} else if (!layer && state.getData(BACKPACK) == null) {
+				state.setData(BACKPACK, model);
+				// The model is named after the cosmetic, which the wardrobe state describes.
+				state.setData(BACK_KIND, kindOf(stack.get(DataComponents.ITEM_MODEL).getPath()));
+			} else {
+				extraList(state, EXTRA_BACKPACKS).add(model);
+			}
+		}
+	}
+
+	private static void setShoulder(AvatarRenderState state, Consumer<ItemStackRenderState> bake) {
 		if (!state.isInvisible && !state.isSpectator && (state.hasPose(Pose.STANDING) || state.hasPose(Pose.CROUCHING))) {
 			ItemStackRenderState model = new ItemStackRenderState();
-			FrameBlend.resolve(model, stack, pick);
+			bake.accept(model);
 			state.setData(SHOULDER, model);
 		}
+	}
+
+	private static List<ItemStackRenderState> extraModels(AvatarRenderState state, RenderStateDataKey<List<ItemStackRenderState>> key) {
+		var models = state.getData(key);
+		return models == null ? List.of() : models;
 	}
 
 	/** Vanilla extracted these display stacks from the player. Remove the whole armor-layer input
@@ -267,7 +334,8 @@ public final class WardrobeSelf {
 		@Override
 		public void submit(PoseStack poseStack, SubmitNodeCollector collector, int light, AvatarRenderState state, float yRot, float xRot) {
 			ItemStackRenderState model = state.getData(BELT);
-			if (model == null || model.isEmpty()) {
+			var extras = extraModels(state, EXTRA_BELTS);
+			if ((model == null || model.isEmpty()) && extras.isEmpty()) {
 				return;
 			}
 			poseStack.pushPose();
@@ -278,7 +346,8 @@ public final class WardrobeSelf {
 			poseStack.translate(0, -0.25f, 0);
 			poseStack.rotateDegrees(Axis.YP, 180);
 			poseStack.scale(0.625f, -0.625f, -0.625f);
-			model.submit(poseStack, collector, light, OverlayTexture.NO_OVERLAY, state.outlineColor);
+			if (model != null && !model.isEmpty()) model.submit(poseStack, collector, light, OverlayTexture.NO_OVERLAY, state.outlineColor);
+			for (ItemStackRenderState extra : extras) extra.submit(poseStack, collector, light, OverlayTexture.NO_OVERLAY, state.outlineColor);
 			poseStack.popPose();
 		}
 	}
@@ -292,6 +361,8 @@ public final class WardrobeSelf {
 		public void submit(PoseStack poseStack, SubmitNodeCollector collector, int light, AvatarRenderState state, float yRot, float xRot) {
 			submitBodyItem(state.getData(BACKPACK), "cape".equals(state.getData(BACK_KIND)), poseStack, collector, light, state);
 			submitBodyItem(state.getData(SHOULDER), false, poseStack, collector, light, state);
+			for (ItemStackRenderState extra : extraModels(state, EXTRA_BACKPACKS)) submitBodyItem(extra, false, poseStack, collector, light, state);
+			for (ItemStackRenderState extra : extraModels(state, EXTRA_SHOULDERS)) submitBodyItem(extra, false, poseStack, collector, light, state);
 		}
 
 		private void submitBodyItem(ItemStackRenderState model, boolean cape, PoseStack poseStack, SubmitNodeCollector collector,
@@ -317,6 +388,21 @@ public final class WardrobeSelf {
 			CustomHeadLayer.translateToHead(poseStack, CustomHeadLayer.Transforms.DEFAULT);
 			model.submit(poseStack, collector, light, OverlayTexture.NO_OVERLAY, state.outlineColor);
 			poseStack.popPose();
+		}
+	}
+
+	static final class HatLayer extends RenderLayer<AvatarRenderState, PlayerModel> {
+		HatLayer(RenderLayerParent<AvatarRenderState, PlayerModel> parent) { super(parent); }
+		@Override public void submit(PoseStack poseStack, SubmitNodeCollector collector, int light, AvatarRenderState state, float yRot, float xRot) {
+			for (ItemStackRenderState model : extraModels(state, EXTRA_HATS)) {
+				poseStack.pushPose();
+				PlayerModel player = getParentModel();
+				player.root().translateAndRotate(poseStack);
+				player.head.translateAndRotate(poseStack);
+				CustomHeadLayer.translateToHead(poseStack, CustomHeadLayer.Transforms.DEFAULT);
+				model.submit(poseStack, collector, light, OverlayTexture.NO_OVERLAY, state.outlineColor);
+				poseStack.popPose();
+			}
 		}
 	}
 }
