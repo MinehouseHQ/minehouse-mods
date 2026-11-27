@@ -67,17 +67,28 @@ final class UiSelfTest {
 					Screenshot.grab(client.gameDirectory, "ui-wheel.png", client.gameRenderer.mainRenderTarget(), 1,
 							msg -> MinehouseMenu.LOG.info("Screenshot: {}", msg.getString()));
 				} else if (ticks == 190) {
-					// The dungeon events' explainers (MineHouse End RoomIntro), one screenshot each.
+					// The dungeon events' explainers (MineHouse End RoomIntro), one screenshot each, or several
+					// moments of each with -Dminehouse.ui.explainerAt=0.2,0.5,0.8 (shares of the scene's length).
 					UiNet.receive(client, resource("ui-explainer.json").replace("SCENE", SCENES[0]));
 					check(client.gui.screen() instanceof UiScreen, "the explainer opens");
-				} else if (ticks > 190 && ticks < 190 + SCENES.length * 60 && (ticks - 190) % 60 == 0) {
-					int i = (ticks - 190) / 60;
-					UiNet.receive(client, resource("ui-explainer.json").replace("SCENE", SCENES[i]).replace("\"rev\":1", "\"rev\":" + (i + 1)));
-				} else if (ticks > 190 && ticks < 190 + SCENES.length * 60 && (ticks - 190) % 60 == 45) {
-					String name = "ui-explainer-" + SCENES[(ticks - 190) / 60] + ".png";
-					Screenshot.grab(client.gameDirectory, name, client.gameRenderer.mainRenderTarget(), 1,
-							msg -> MinehouseMenu.LOG.info("Screenshot: {}", msg.getString()));
-				} else if (ticks == 190 + SCENES.length * 60 + 60) {
+					for (String scene : SCENES) check(pro.minehouse.menu.explainer.Explainer.known(scene), "the explainer knows " + scene);
+				} else if (ticks > 190 && ticks < explainersEnd()) {
+					int k = ticks - 190;
+					int shot = k / SHOT;
+					int scene = shot / AT.length;
+					if (k % SHOT == 0 && shot % AT.length == 0) {
+						UiNet.receive(client, resource("ui-explainer.json").replace("SCENE", SCENES[scene]).replace("\"rev\":1", "\"rev\":" + (scene + 1)));
+					}
+					if (k % SHOT == 1 && AT[0] >= 0) {
+						pro.minehouse.menu.explainer.Explainer.pinned = AT[shot % AT.length];
+					}
+					if (k % SHOT == SHOT - 15) {
+						String name = "ui-explainer-" + SCENES[scene] + (AT[0] >= 0 ? "-" + Math.round(AT[shot % AT.length] * 100) : "") + ".png";
+						Screenshot.grab(client.gameDirectory, name, client.gameRenderer.mainRenderTarget(), 1,
+								msg -> MinehouseMenu.LOG.info("Screenshot: {}", msg.getString()));
+						MinehouseMenu.LOG.info("Explainer {}: {} fps", name, client.getFps());
+					}
+				} else if (ticks == explainersEnd() + 60) {
 					MinehouseMenu.LOG.info(problem == null ? "MINEHOUSE_UI_OK" : "MINEHOUSE_UI_FAIL: " + problem);
 					client.stop();
 				}
@@ -88,7 +99,24 @@ final class UiSelfTest {
 		});
 	}
 
-	private static final String[] SCENES = {"reflection", "gravity", "darkness", "lava", "merchant", "altar", "timer"};
+	private static final String[] SCENES = {"reflection", "gravity", "darkness", "lava", "merchant", "altar", "timer",
+			"ice", "meteors", "giants", "ghosts", "glass_cannon", "totems", "volatile", "storm", "frenzy", "wind", "poison", "hill", "champion"};
+	/** Ticks per screenshot. */
+	private static final int SHOT = 60;
+	private static final float[] AT = at();
+
+	private static float[] at() {
+		String list = System.getProperty("minehouse.ui.explainerAt", "");
+		if (list.isBlank()) return new float[] {-1};
+		String[] parts = list.split(",");
+		float[] out = new float[parts.length];
+		for (int i = 0; i < parts.length; i++) out[i] = Float.parseFloat(parts[i].trim());
+		return out;
+	}
+
+	private static int explainersEnd() {
+		return 190 + SCENES.length * AT.length * SHOT;
+	}
 
 	private static void check(boolean ok, String what) {
 		if (!ok && problem == null) problem = what;

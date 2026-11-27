@@ -72,10 +72,15 @@ public final class Explainer {
 			float dark, float bar, int bg, float length) {
 	}
 
+	/** Self-test only: show every scene at this share of its length (0..1) instead of playing it; -1 plays. */
+	public static float pinned = -1;
+
 	/** The scenes the server may name. */
 	public static boolean known(String scene) {
 		return switch (scene) {
-			case "reflection", "gravity", "darkness", "lava", "merchant", "altar", "timer" -> true;
+			case "reflection", "gravity", "darkness", "lava", "merchant", "altar", "timer",
+					"ice", "meteors", "giants", "ghosts", "glass_cannon", "totems", "volatile", "storm", "frenzy", "wind", "poison", "hill",
+					"champion" -> true;
 			default -> false;
 		};
 	}
@@ -90,10 +95,23 @@ public final class Explainer {
 			case "merchant" -> new Merchant();
 			case "altar" -> new Altar();
 			case "timer" -> new Timer();
+			case "ice" -> new MoreScenes.Ice();
+			case "meteors" -> new MoreScenes.Meteors();
+			case "giants" -> new MoreScenes.Giants();
+			case "ghosts" -> new MoreScenes.Ghosts();
+			case "glass_cannon" -> new MoreScenes.GlassCannon();
+			case "totems" -> new MoreScenes.Totems();
+			case "volatile" -> new MoreScenes.Volatile();
+			case "storm" -> new MoreScenes.Storm();
+			case "frenzy" -> new MoreScenes.Frenzy();
+			case "wind" -> new MoreScenes.Wind();
+			case "poison" -> new MoreScenes.Poison();
+			case "hill" -> new MoreScenes.Hill();
+			case "champion" -> new MoreScenes.Champion();
 			default -> null;
 		};
 		if (s == null) return null;
-		float time = t % s.length();
+		float time = pinned >= 0 ? Math.min(pinned, 0.999f) * s.length() : t % s.length();
 		Cast c = new Cast(time);
 		s.play(c, time);
 		int step = 0;
@@ -310,11 +328,21 @@ public final class Explainer {
 			s.walkAnimationSpeed = Mth.clamp(speed, 0, 1);
 		}
 
-		/** Falls over and fades, as a mob that died {@code since} seconds ago. */
+		/**
+		 * Falls over flat, red, as a mob that died {@code since} seconds ago: backwards, away from the
+		 * way it faces, so it never lands on whoever hit it.
+		 */
 		void dead(LivingEntityRenderState s, float since) {
 			if (since < 0) return;
-			s.deathTime = Math.min(20, since * 20);
+			s.deathTime = 0;
 			s.hasRedOverlay = true;
+			ExplainerRenderer.Actor a = at(s);
+			float away = s.bodyRot == RIGHT ? -1 : 1;
+			// not off the stage: near an end it falls the other way
+			double reach = s.boundingBoxHeight * s.scale;
+			if (a.x + away * reach > HALF + 0.6) away = -1;
+			else if (a.x + away * reach < -HALF - 0.6) away = 1;
+			a.tip = away * 90 * ease(since, 0, 0.5f);
 		}
 
 		private PlayerSkin selfSkin() {
@@ -393,8 +421,12 @@ public final class Explainer {
 				d.isInvisible = t < 1.0f;
 				c.swing(d, swingAt(t, 4.85f));
 				d.hasRedOverlay = hurtAt(t, 2.3f, 2.7f, 3.1f, 3.5f, 3.9f, 4.3f);
-				c.dead(d, t - 6.15f);
-				if (t >= 6.15f) d.isInvisible = t > 6.9f;
+				// players stand on both sides of it: it shrinks away into the rift instead of falling
+				if (t >= 6.15f) {
+					d.hasRedOverlay = true;
+					d.scale = 1 - 0.8f * ease(t, 6.15f, 6.9f);
+					d.isInvisible = t > 6.9f;
+				}
 			}
 			if (t >= 6.6f) {
 				float rise = ease(t, 6.6f, 7.6f);
@@ -435,7 +467,7 @@ public final class Explainer {
 			}
 
 			if (t < 4.4f) {
-				double zx = move(t, 0, 1.1f, 2.6f, 0.2f);
+				double zx = move(t, 0, 1.1f, 2.6f, 0.5f);
 				double zy = move(t, 1.25f, 2.6f, 0, 1.5f);
 				LivingEntityRenderState z = c.mob(EntityTypes.ZOMBIE, zx, 0.5, LEFT);
 				c.at(z).y = zy;
@@ -482,7 +514,7 @@ public final class Explainer {
 			c.swing(you, swingAt(t, 3.0f, 3.5f, 4.0f));
 
 			if (t < 5.0f) {
-				LivingEntityRenderState z = c.mob(EntityTypes.ZOMBIE, move(t, 1.4f, 2.9f, 3.0f, -0.6f), 0.5, LEFT, true);
+				LivingEntityRenderState z = c.mob(EntityTypes.ZOMBIE, move(t, 1.4f, 2.9f, 3.0f, -0.2f), 0.5, LEFT, true);
 				c.walk(z, during(t, 1.4f, 2.9f) ? 0.8f : 0);
 				z.hasRedOverlay = hurtAt(t, 3.0f, 3.5f, 4.0f);
 				c.dead(z, t - 4.2f);
@@ -654,12 +686,12 @@ public final class Explainer {
 			c.swing(you, swingAt(t, 1.0f, 1.4f, 1.8f, 3.0f, 3.8f, 4.6f));
 
 			if (t < 2.8f) {
-				LivingEntityRenderState a = c.mob(EntityTypes.ZOMBIE, move(t, 0, 0.8f, 2.8f, -0.6f), 0.4, LEFT);
+				LivingEntityRenderState a = c.mob(EntityTypes.ZOMBIE, move(t, 0, 0.8f, 2.8f, -0.2f), 0.4, LEFT);
 				c.walk(a, t < 0.8f ? 0.8f : 0);
 				a.hasRedOverlay = hurtAt(t, 1.0f, 1.4f, 1.8f);
 				c.dead(a, t - 2.0f);
 			}
-			LivingEntityRenderState b = c.mob(EntityTypes.ZOMBIE, move(t, 0.4f, 1.6f, 2.8f, 0.7f), 0.7, LEFT);
+			LivingEntityRenderState b = c.mob(EntityTypes.ZOMBIE, move(t, 0.4f, 1.6f, 2.8f, 1.0f), 0.7, LEFT);
 			c.walk(b, during(t, 0.4f, 1.6f) ? 0.8f : 0);
 			b.hasRedOverlay = hurtAt(t, 3.0f, 3.8f, 4.6f);
 

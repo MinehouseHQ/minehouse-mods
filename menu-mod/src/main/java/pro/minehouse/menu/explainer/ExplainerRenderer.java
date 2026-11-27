@@ -43,6 +43,8 @@ public final class ExplainerRenderer extends PictureInPictureRenderer<ExplainerR
 		float spin;
 		/** ITEM: size in blocks; FLAME: height. */
 		float size = 1;
+		/** ENTITY: fallen over sideways about its feet by this many degrees, its head toward scene +x when positive. */
+		float tip;
 
 		Actor(Kind kind, @Nullable EntityRenderState entity, @Nullable ItemStackRenderState item, double x, double y, double z) {
 			this.kind = kind;
@@ -89,7 +91,19 @@ public final class ExplainerRenderer extends PictureInPictureRenderer<ExplainerR
 			try {
 				switch (a.kind) {
 					case ENTITY -> {
-						if (a.entity != null) mc.getEntityRenderDispatcher().submit(a.entity, camera, -a.x, a.y, a.z, pose, collector);
+						if (a.entity == null) continue;
+						if (a.tip == 0) {
+							mc.getEntityRenderDispatcher().submit(a.entity, camera, -a.x, a.y, a.z, pose, collector);
+							continue;
+						}
+						// Fallen over on our own pivot, flat on the floor and away from whoever hit it: vanilla's
+						// death turn tips a body toward its own side, which here is into the player's hands.
+						float k = Math.abs(a.tip) / 90f;
+						pose.pushPose();
+						pose.translate(-a.x, a.y + a.entity.boundingBoxWidth * 0.5f * k, a.z);
+						pose.rotateDegrees(Axis.ZP, a.tip);
+						mc.getEntityRenderDispatcher().submit(a.entity, camera, 0, 0, 0, pose, collector);
+						pose.popPose();
 					}
 					case BLOCK -> {
 						if (a.item == null || a.item.isEmpty()) continue;
