@@ -606,7 +606,7 @@ public final class Explainer {
 		}
 	}
 
-	/** «Алтарь проклятия»: touch it for a curse, x2 experience and the altar's loot. */
+	/** «Алтарь проклятия»: touch it for a curse, x2 experience and more from the altar. */
 	static final class Altar implements Scene {
 		public float length() {
 			return 8.5f;
@@ -621,7 +621,7 @@ public final class Explainer {
 					{"Алтарь: риск по желанию", "The altar: a risk you choose"},
 					{"Тронул: проклятие до конца зала", "Touch it: a curse for the hall"},
 					{"Зато мобы дают x2 опыт", "But mobs give x2 experience"},
-					{"После зачистки алтарь даёт добычу", "Hall cleared: the altar pays out"}};
+					{"После зачистки алтарь даёт опыт", "Hall cleared: the altar gives experience"}};
 		}
 
 		public void play(Cast c, float t) {
@@ -650,8 +650,8 @@ public final class Explainer {
 			}
 			if (t >= 5.4f) {
 				float k = ease(t, 5.4f, 6.2f);
-				c.item("minecraft:diamond", 0.3, 1.3 + k * 0.7, 0.6, 0.55f);
-				c.item("minecraft:gold_ingot", 0.9, 1.2 + k * 0.9, 0.6, 0.55f);
+				c.item("minecraft:experience_bottle", 0.3, 1.3 + k * 0.7, 0.6, 0.55f);
+				c.item("minecraft:experience_bottle", 0.9, 1.2 + k * 0.9, 0.6, 0.55f);
 				c.item("minecraft:experience_bottle", 0.6, 1.5 + k * 1.0, 0.6, 0.55f);
 			}
 		}

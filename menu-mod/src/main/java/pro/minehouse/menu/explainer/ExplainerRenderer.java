@@ -87,53 +87,60 @@ public final class ExplainerRenderer extends PictureInPictureRenderer<ExplainerR
 		pose.rotateDegrees(Axis.YP, state.yaw());
 		CameraRenderState camera = new CameraRenderState();
 		camera.orientation = new Quaternionf().rotationYXZ((float) Math.toRadians(state.yaw()), (float) Math.toRadians(-state.pitch()), 0);
+		PoseStack.Pose stage = pose.last().copy();
 		for (Actor a : state.actors()) {
+			// Each actor on its own copy of the stage pose: a renderer that throws halfway (another mod's
+			// mixin, say) leaves its pushes on the stack, and the next actor would be drawn in its arm.
+			PoseStack own = new PoseStack();
+			own.last().set(stage);
 			try {
-				switch (a.kind) {
-					case ENTITY -> {
-						if (a.entity == null) continue;
-						if (a.tip == 0) {
-							mc.getEntityRenderDispatcher().submit(a.entity, camera, -a.x, a.y, a.z, pose, collector);
-							continue;
-						}
-						// Fallen over on our own pivot, flat on the floor and away from whoever hit it: vanilla's
-						// death turn tips a body toward its own side, which here is into the player's hands.
-						float k = Math.abs(a.tip) / 90f;
-						pose.pushPose();
-						pose.translate(-a.x, a.y + a.entity.boundingBoxWidth * 0.5f * k, a.z);
-						pose.rotateDegrees(Axis.ZP, a.tip);
-						mc.getEntityRenderDispatcher().submit(a.entity, camera, 0, 0, 0, pose, collector);
-						pose.popPose();
-					}
-					case BLOCK -> {
-						if (a.item == null || a.item.isEmpty()) continue;
-						pose.pushPose();
-						pose.translate(-a.x, a.y + 0.5, a.z);
-						a.item.submit(pose, collector, FULL_BRIGHT, OverlayTexture.NO_OVERLAY, 0);
-						pose.popPose();
-					}
-					case ITEM -> {
-						if (a.item == null || a.item.isEmpty()) continue;
-						pose.pushPose();
-						pose.translate(-a.x, a.y, a.z);
-						pose.rotateDegrees(Axis.YP, a.spin);
-						pose.scale(a.size, a.size, a.size);
-						a.item.submit(pose, collector, FULL_BRIGHT, OverlayTexture.NO_OVERLAY, 0);
-						pose.popPose();
-					}
-					case FLAME -> {
-						if (a.entity == null) continue;
-						pose.pushPose();
-						pose.translate(-a.x, a.y, a.z);
-						collector.submitFlame(pose, a.entity, camera.orientation);
-						pose.popPose();
-					}
-				}
+				draw(mc, a, camera, own, collector);
 			} catch (RuntimeException e) {
-				// A model that can't be drawn this way must not take the window down.
-				Explainer.warnOnce(a.kind + " " + (a.entity != null ? a.entity.entityType : "item"), e);
+				failed(a, e);
 			}
 		}
+	}
+
+	private static void draw(Minecraft mc, Actor a, CameraRenderState camera, PoseStack pose, SubmitNodeCollector collector) {
+		switch (a.kind) {
+			case ENTITY -> {
+				if (a.entity == null || Compat.skip(a.entity)) return;
+				Compat.prepare(a.entity);
+				if (a.tip == 0) {
+					mc.getEntityRenderDispatcher().submit(a.entity, camera, -a.x, a.y, a.z, pose, collector);
+					return;
+				}
+				// Fallen over on our own pivot, flat on the floor and away from whoever hit it: vanilla's
+				// death turn tips a body toward its own side, which here is into the player's hands.
+				float k = Math.abs(a.tip) / 90f;
+				pose.translate(-a.x, a.y + a.entity.boundingBoxWidth * 0.5f * k, a.z);
+				pose.rotateDegrees(Axis.ZP, a.tip);
+				mc.getEntityRenderDispatcher().submit(a.entity, camera, 0, 0, 0, pose, collector);
+			}
+			case BLOCK -> {
+				if (a.item == null || a.item.isEmpty()) return;
+				pose.translate(-a.x, a.y + 0.5, a.z);
+				a.item.submit(pose, collector, FULL_BRIGHT, OverlayTexture.NO_OVERLAY, 0);
+			}
+			case ITEM -> {
+				if (a.item == null || a.item.isEmpty()) return;
+				pose.translate(-a.x, a.y, a.z);
+				pose.rotateDegrees(Axis.YP, a.spin);
+				pose.scale(a.size, a.size, a.size);
+				a.item.submit(pose, collector, FULL_BRIGHT, OverlayTexture.NO_OVERLAY, 0);
+			}
+			case FLAME -> {
+				if (a.entity == null) return;
+				pose.translate(-a.x, a.y, a.z);
+				collector.submitFlame(pose, a.entity, camera.orientation);
+			}
+		}
+	}
+
+	/** A model that can't be drawn this way must not take the window down, nor throw again every frame. */
+	private static void failed(Actor a, RuntimeException e) {
+		Explainer.warnOnce(a.kind + " " + (a.entity != null ? a.entity.entityType : "item"), e);
+		if (a.kind == Kind.ENTITY && a.entity != null) Compat.broke(a.entity);
 	}
 
 	@Override

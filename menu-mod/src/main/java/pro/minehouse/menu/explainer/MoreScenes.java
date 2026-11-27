@@ -507,7 +507,7 @@ final class MoreScenes {
 		}
 	}
 
-	/** «Царь горы»: stand in the circle while the bar fills; extra loot. */
+	/** «Царь горы»: stand in the circle while the bar fills; extra experience. */
 	static final class Hill implements Scene {
 		public float length() {
 			return 8;
@@ -521,7 +521,7 @@ final class MoreScenes {
 			return new String[][] {
 					{"Встань в светящийся круг", "Stand in the glowing circle"},
 					{"Полоска копится, пока ты в круге", "The bar fills while you stand in it"},
-					{"Удержал — лишняя добыча", "Held it: extra loot"}};
+					{"Удержал — лишний опыт", "Held it: extra experience"}};
 		}
 
 		public void play(Cast c, float t) {
@@ -549,8 +549,8 @@ final class MoreScenes {
 			if (t >= 4.1f && t < 4.8f) you.bodyRot = LEFT;
 			if (t >= 5.8f) {
 				float k = ease(t, 5.8f, 6.6f);
-				c.item("minecraft:diamond", -0.3, 1.2 + k * 0.8, 0.7, 0.5f);
-				c.item("minecraft:emerald", 0.3, 1.1 + k, 0.7, 0.5f);
+				c.item("minecraft:experience_bottle", -0.3, 1.2 + k * 0.8, 0.7, 0.5f);
+				c.item("minecraft:experience_bottle", 0.3, 1.1 + k, 0.7, 0.5f);
 			}
 		}
 	}
