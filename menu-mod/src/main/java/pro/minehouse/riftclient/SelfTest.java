@@ -65,10 +65,15 @@ final class SelfTest {
 			intro &= Intro.playing();
 			// The end of Chapter 1: its channel is listened to.
 			boolean chapterEnd = ClientPlayNetworking.getGlobalReceivers().contains(ChapterEndPayload.TYPE.id());
+			// The see-through rift window: its channel, codec, room and cut.
+			String window = WindowSelfTest.check();
+			if (window == null && !ClientPlayNetworking.getGlobalReceivers().contains(WindowPayloads.View.TYPE.id())) {
+				window = "receiver";
+			}
 
-			MinehouseRiftClient.LOG.info(receiver && codec && geometry && on && off && ui && intro && chapterEnd ? "MINEHOUSE_RIFT_CLIENT_OK"
+			MinehouseRiftClient.LOG.info(receiver && codec && geometry && on && off && ui && intro && chapterEnd && window == null ? "MINEHOUSE_RIFT_CLIENT_OK"
 					: "MINEHOUSE_RIFT_CLIENT_FAIL: receiver " + receiver + ", codec " + codec + ", geometry " + geometry + ", on " + on + ", off " + off
-							+ ", ui " + ui + ", intro " + intro + ", chapterEnd " + chapterEnd);
+							+ ", ui " + ui + ", intro " + intro + ", chapterEnd " + chapterEnd + ", window " + window);
 			client.stop();
 		});
 	}

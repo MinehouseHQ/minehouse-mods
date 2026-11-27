@@ -45,6 +45,17 @@ public final class MinehouseRiftClient implements ClientModInitializer {
 		PayloadTypeRegistry.clientboundPlay().register(HolePayload.TYPE, HolePayload.CODEC);
 		ClientPlayNetworking.registerGlobalReceiver(HolePayload.TYPE, (payload, context) -> BlackHoleBlocks.receive(payload));
 		ClientTickEvents.END_CLIENT_TICK.register(BlackHoleBlocks::tick);
+		// The see-through rift window (End 0.33.1+): the room behind it, drawn in its oval.
+		PayloadTypeRegistry.clientboundPlay().register(WindowPayloads.View.TYPE, WindowPayloads.View.CODEC);
+		PayloadTypeRegistry.clientboundPlay().register(WindowPayloads.Scale.TYPE, WindowPayloads.Scale.CODEC);
+		PayloadTypeRegistry.clientboundPlay().register(WindowPayloads.Gone.TYPE, WindowPayloads.Gone.CODEC);
+		ClientPlayNetworking.registerGlobalReceiver(WindowPayloads.View.TYPE, (payload, context) -> PortalWindows.receive(payload));
+		ClientPlayNetworking.registerGlobalReceiver(WindowPayloads.Scale.TYPE, (payload, context) -> PortalWindows.receive(payload));
+		ClientPlayNetworking.registerGlobalReceiver(WindowPayloads.Gone.TYPE, (payload, context) -> PortalWindows.receive(payload));
+		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> PortalWindows.clear());
+		ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> PortalWindows.clear());
+		ClientTickEvents.END_CLIENT_TICK.register(PortalWindows::tick);
+		LevelRenderEvents.COLLECT_SUBMITS.register(PortalWindows::submit);
 		LevelRenderEvents.COLLECT_SUBMITS.register(BlackHoleBlocks::submit);
 		// The opening of Chapter 2, on the server's word; nothing of the game's interface over it.
 		PayloadTypeRegistry.clientboundPlay().register(IntroPayload.TYPE, IntroPayload.CODEC);
@@ -118,6 +129,9 @@ public final class MinehouseRiftClient implements ClientModInitializer {
 
 		if ("rift".equals(System.getProperty("minehouse.selftest"))) {
 			SelfTest.register();
+		}
+		if ("window".equals(System.getProperty("minehouse.selftest"))) {
+			WindowSelfTest.registerWorld();
 		}
 	}
 

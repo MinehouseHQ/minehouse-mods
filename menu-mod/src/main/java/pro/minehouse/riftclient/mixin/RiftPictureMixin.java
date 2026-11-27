@@ -9,6 +9,7 @@ import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.client.renderer.entity.EntityRenderer;
 import net.minecraft.world.entity.Entity;
 import pro.minehouse.riftclient.BlackHoleBlocks;
+import pro.minehouse.riftclient.PortalWindows;
 import pro.minehouse.riftclient.RiftTear;
 
 /** The flat picture of a rift is not drawn while the shader draws the rift itself. */
@@ -16,7 +17,7 @@ import pro.minehouse.riftclient.RiftTear;
 public abstract class RiftPictureMixin {
 	@Inject(method = "shouldRender", at = @At("HEAD"), cancellable = true)
 	private void minehouse$riftPicture(Entity entity, Frustum culler, double camX, double camY, double camZ, float partialTicks, CallbackInfoReturnable<Boolean> cir) {
-		if (RiftTear.hidden(entity) || BlackHoleBlocks.hidden(entity)) {
+		if (RiftTear.hidden(entity) || BlackHoleBlocks.hidden(entity) || PortalWindows.hidden(entity)) {
 			cir.setReturnValue(false);
 		}
 	}
