@@ -9,3 +9,4 @@ logs/
 run-updatetest/
 run-demo/
 run-selftest-*/
+run-route-demo/

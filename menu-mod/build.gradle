@@ -35,6 +35,15 @@ loom {
 				vmArg "-Dminehouse.ui.world=true"
 			}
 		}
+		// Joins a local server with MineHouse Cosmetics as an op, shows the route to a fitting room,
+		// saves run-route-demo/screenshots/ and exits (./gradlew runServer in ../cosmetics-mod).
+		routeDemoClient {
+			client()
+			name = "Route demo client"
+			runDir = "run-route-demo"
+			vmArg "-Dminehouse.route.demo=true"
+			programArgs "--username", "Steve", "--quickPlayMultiplayer", "localhost:25565"
+		}
 		// Joins a local server, draws made-up zones, saves run-demo/screenshots/zones-demo.png and exits.
 		// Start any 26.3 server on localhost:25565 (online-mode=false) first.
 		demoClient {

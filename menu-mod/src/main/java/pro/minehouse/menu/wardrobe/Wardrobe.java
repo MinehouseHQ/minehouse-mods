@@ -33,6 +33,7 @@ public final class Wardrobe {
 		pro.minehouse.menu.ui.UiNet.init();
 		WardrobeSelf.init();
 		PetPat.init();
+		WardrobeRoute.init();
 		PictureInPictureRendererRegistry.register(context -> new WardrobePreview());
 		key = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.minehouse.wardrobe", InputConstants.KEY_O, CATEGORY));
 		ClientLifecycleEvents.CLIENT_STARTED.register(Wardrobe::freeKeyO);
