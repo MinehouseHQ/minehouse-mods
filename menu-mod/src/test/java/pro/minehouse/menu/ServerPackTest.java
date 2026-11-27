@@ -3,6 +3,7 @@ package pro.minehouse.menu;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.sun.net.httpserver.HttpServer;
@@ -86,6 +87,44 @@ class ServerPackTest {
 			ServerPack.initializeForTest();
 			assertNull(ServerPack.activeSha1());
 		} finally {
+			server.stop(0);
+		}
+	}
+
+	/** Polymer rewrote the pack mid-download: fewer bytes than promised, connection left open. */
+	@Test
+	void stalledDownloadTimesOut() throws Exception {
+		byte[] pack = zip("{}");
+		String sha1 = sha1(pack);
+		HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+		server.setExecutor(java.util.concurrent.Executors.newCachedThreadPool());
+		server.createContext("/eu.pb4.polymer.autohost/minehouse/pack_info", ex -> {
+			byte[] body = ("{\"id\":\"" + ID + "\",\"sha1\":\"" + sha1 + "\"}").getBytes(StandardCharsets.UTF_8);
+			ex.sendResponseHeaders(200, body.length);
+			ex.getResponseBody().write(body);
+			ex.close();
+		});
+		server.createContext("/eu.pb4.polymer.autohost/polymer/resources", ex -> {
+			ex.sendResponseHeaders(200, 100_000);
+			ex.getResponseBody().write(pack, 0, 10);
+			ex.getResponseBody().flush();
+			try {
+				Thread.sleep(10_000);
+			} catch (InterruptedException ignored) {
+			}
+		});
+		server.start();
+		int old = ServerPack.prefetchReadTimeoutMs;
+		ServerPack.prefetchReadTimeoutMs = 500;
+		try {
+			ServerPack.useDirs(this.tmp.resolve("ours"), this.tmp.resolve("downloads"));
+			long start = System.nanoTime();
+			assertThrows(java.net.SocketTimeoutException.class,
+				() -> ServerPack.prefetchNow("http://127.0.0.1:" + server.getAddress().getPort(), ServerPack.State.EMPTY));
+			assertTrue(System.nanoTime() - start < 5_000_000_000L, "gave up long before the server did");
+			assertFalse(Files.exists(ServerPack.file(sha1)));
+		} finally {
+			ServerPack.prefetchReadTimeoutMs = old;
 			server.stop(0);
 		}
 	}

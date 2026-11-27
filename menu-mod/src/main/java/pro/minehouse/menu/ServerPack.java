@@ -4,18 +4,15 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileTime;
 import java.security.MessageDigest;
-import java.time.Duration;
 import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Optional;
@@ -58,6 +55,11 @@ import org.jspecify.annotations.Nullable;
  */
 public final class ServerPack {
 	public static final String PACK_ID = "minehouse/server_pack";
+	/** Connect and per-read timeouts for pack downloads, ours and vanilla's ({@code HttpUtilMixin}). */
+	public static final int CONNECT_TIMEOUT_MS = 10_000;
+	public static final int READ_TIMEOUT_MS = 30_000;
+	/** {@link #READ_TIMEOUT_MS} for the prefetch; tests shorten it. */
+	static int prefetchReadTimeoutMs = READ_TIMEOUT_MS;
 	static final String AUTOHOST = "/eu.pb4.polymer.autohost/";
 	private static final Pattern SHA1 = Pattern.compile("^[a-f0-9]{40}$");
 	private static final PackSelectionConfig SELECTION = new PackSelectionConfig(true, Pack.Position.TOP, true);
@@ -108,21 +110,22 @@ public final class ServerPack {
 		thread.start();
 	}
 
-	static void prefetchNow(String base, State state) throws IOException, InterruptedException {
-		HttpClient http = HttpClient.newBuilder()
-			.connectTimeout(Duration.ofSeconds(4))
-			.followRedirects(HttpClient.Redirect.NORMAL)
-			.build();
-		HttpResponse<String> info = http.send(
-			request(base + AUTOHOST + "minehouse/pack_info+info.json").timeout(Duration.ofSeconds(5)).build(),
-			HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8)
-		);
-		if (info.statusCode() != 200) {
-			// The server has no MineHouse Ambient with pack_info yet: the pack is still cached on join.
-			MinehouseMenu.LOG.info("MineHouse server pack info: HTTP {}", info.statusCode());
-			return;
+	static void prefetchNow(String base, State state) throws IOException {
+		String body;
+		HttpURLConnection info = open(base + AUTOHOST + "minehouse/pack_info+info.json", 4_000, 5_000);
+		try {
+			if (info.getResponseCode() != 200) {
+				// The server has no MineHouse Ambient with pack_info yet: the pack is still cached on join.
+				MinehouseMenu.LOG.info("MineHouse server pack info: HTTP {}", info.getResponseCode());
+				return;
+			}
+			try (InputStream in = info.getInputStream()) {
+				body = new String(in.readNBytes(64 * 1024), StandardCharsets.UTF_8);
+			}
+		} finally {
+			info.disconnect();
 		}
-		JsonObject json = GSON.fromJson(info.body(), JsonObject.class);
+		JsonObject json = GSON.fromJson(body, JsonObject.class);
 		String sha1 = normalize(json.has("sha1") ? json.get("sha1").getAsString() : null);
 		String id = json.has("id") ? json.get("id").getAsString() : state.id();
 		if (sha1 == null) {
@@ -135,16 +138,20 @@ public final class ServerPack {
 		Files.createDirectories(dir());
 		Path tmp = Files.createTempFile(dir(), "download-", ".tmp");
 		try {
-			HttpResponse<InputStream> pack = http.send(
-				request(base + AUTOHOST + "polymer/resources+" + sha1 + ".zip").timeout(Duration.ofMinutes(5)).build(),
-				HttpResponse.BodyHandlers.ofInputStream()
-			);
-			if (pack.statusCode() != 200) {
-				MinehouseMenu.LOG.info("MineHouse server pack download: HTTP {}", pack.statusCode());
-				return;
-			}
-			try (InputStream in = pack.body()) {
-				Files.copy(in, tmp, StandardCopyOption.REPLACE_EXISTING);
+			// HttpURLConnection, not HttpClient: HttpClient's timeout ends with the headers, and a
+			// body that stops coming (Polymer rewriting the pack right after a restart) would hang
+			// the prefetch forever. Here every read must make progress within READ_TIMEOUT.
+			HttpURLConnection pack = open(base + AUTOHOST + "polymer/resources+" + sha1 + ".zip", CONNECT_TIMEOUT_MS, prefetchReadTimeoutMs);
+			try {
+				if (pack.getResponseCode() != 200) {
+					MinehouseMenu.LOG.info("MineHouse server pack download: HTTP {}", pack.getResponseCode());
+					return;
+				}
+				try (InputStream in = pack.getInputStream()) {
+					Files.copy(in, tmp, StandardCopyOption.REPLACE_EXISTING);
+				}
+			} finally {
+				pack.disconnect();
 			}
 			String actual = sha1(tmp);
 			if (!sha1.equals(actual)) {
@@ -159,10 +166,13 @@ public final class ServerPack {
 		}
 	}
 
-	private static HttpRequest.Builder request(String url) {
-		return HttpRequest.newBuilder(URI.create(url))
-			.header("User-Agent", "MineHouse client")
-			.GET();
+	private static HttpURLConnection open(String url, int connectTimeoutMs, int readTimeoutMs) throws IOException {
+		HttpURLConnection connection = (HttpURLConnection) URI.create(url).toURL().openConnection();
+		connection.setConnectTimeout(connectTimeoutMs);
+		connection.setReadTimeout(readTimeoutMs);
+		connection.setInstanceFollowRedirects(true);
+		connection.setRequestProperty("User-Agent", "MineHouse client");
+		return connection;
 	}
 
 	/** First resource load: picks the newest local copy of the MineHouse pack. */

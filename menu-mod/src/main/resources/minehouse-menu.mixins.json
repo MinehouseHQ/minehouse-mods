@@ -8,6 +8,7 @@
     "EntityRenderDispatcherMixin",
     "EquipmentAssetsAccess",
     "GuiMixin",
+    "HttpUtilMixin",
     "LivingEntityRendererMixin",
     "LivingEntityRendererSubmitMixin",
     "RidingMinecartSoundMixin",
