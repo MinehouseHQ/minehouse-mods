@@ -5,6 +5,7 @@
    {"t":"input","id":"amount","value":"12","placeholder":"число","max":7,"chars":"digits","focus":true,"grow":1,"submit":{"a":"set"}},
    {"t":"button","text":"Задать","style":"primary","click":{"a":"set"}}]},
   {"t":"input","id":"name","value":"","placeholder":"Имя этапа"},
+  {"t":"input","id":"post","rows":3,"max":1000,"value":"Длинный пост в несколько строк: слова переносятся сами, а Enter начинает новую строку.\nВторая строка.","placeholder":"Текст поста"},
   {"t":"slider","id":"scale","min":0.5,"max":2,"step":0.1,"value":1,"label":"Множитель","unit":" ×","change":{"a":"scale"}}
  ]}}],
  "hints":[["Enter","задать"],["Esc","закрыть"]]}

@@ -209,7 +209,7 @@ public final class UiScreen extends Screen implements Fitting {
 
 	private static void collectFields(Node n, Map<String, UiField> out, Map<String, UiSlider> outSliders) {
 		if (n.type.equals("input") && n.id != null) {
-			out.put(n.id, new UiField(n.str("value", ""), n.num("max", 32), "digits".equals(n.str("chars"))));
+			out.put(n.id, new UiField(n.str("value", ""), n.num("max", 32), "digits".equals(n.str("chars")), n.num("rows", 1) > 1));
 		}
 		if (n.type.equals("slider") && n.id != null) {
 			outSliders.put(n.id, new UiSlider(dbl(n, "min", 0), dbl(n, "max", 1), dbl(n, "step", 0), dbl(n, "value", dbl(n, "min", 0))));
@@ -676,7 +676,7 @@ public final class UiScreen extends Screen implements Fitting {
 		card(g, n.x, n.y, n.x + n.w, n.y + n.h, Theme.MUTED_BG, focus ? Theme.ACCENT : hover && on ? Theme.FAINT : Theme.BORDER);
 		int x0 = n.x + 5;
 		int room = n.w - 10;
-		int ty = n.y + (n.h - 8) / 2;
+		int ty = f != null && f.multiline ? n.y + 4 : n.y + (n.h - 8) / 2;
 		if (f == null || f.text.isEmpty()) {
 			String ph = n.str("placeholder");
 			if (ph != null) {
@@ -684,6 +684,10 @@ public final class UiScreen extends Screen implements Fitting {
 				g.text(font, Component.literal(shown), x0, ty, Theme.FAINT, false);
 			}
 			if (focus && caretOn()) g.fill(x0, ty - 1, x0 + 1, ty + 9, Theme.FG);
+			return;
+		}
+		if (f.multiline) {
+			inputLines(g, n, f, x0, room, ty, on, focus);
 			return;
 		}
 		// Scroll so the caret stays in the box.
@@ -742,6 +746,41 @@ public final class UiScreen extends Screen implements Fitting {
 		if (sl.setFraction((mx - x0 - 2) / Math.max(1, x1 - x0 - 4))) {
 			minecraft.getSoundManager().play(net.minecraft.client.resources.sounds.SimpleSoundInstance.forUI(
 					net.minecraft.sounds.SoundEvents.UI_BUTTON_CLICK.value(), 2.0F, 0.08F));
+		}
+	}
+
+	/** Rows of a field of several lines (node "rows", 2..20). */
+	private static int rows(Node n) {
+		return Math.max(1, Math.min(20, n.num("rows", 1)));
+	}
+
+	/** A field of several lines: wrapped, scrolled so the caret's line shows, a bar when it goes on. */
+	private void inputLines(GuiGraphicsExtractor g, Node n, UiField f, int x0, int room, int ty, boolean on, boolean focus) {
+		var lines = f.wrap(room - 4, s -> font.width(s));
+		int rows = rows(n);
+		f.scrollLinesTo(lines, rows);
+		int caretLine = UiField.lineOf(lines, f.cursor);
+		g.enableScissor(n.x + 1, n.y + 1, n.x + n.w - 1, n.y + n.h - 1);
+		for (int i = f.topLine; i < Math.min(lines.size(), f.topLine + rows); i++) {
+			int[] r = lines.get(i);
+			int y = ty + (i - f.topLine) * UiTree.LINE;
+			g.text(font, Component.literal(f.text.substring(r[0], r[1])), x0, y, on ? Theme.FG : Theme.DISABLED, false);
+			if (focus && i == caretLine && caretOn()) {
+				int cx = x0 + font.width(f.text.substring(r[0], Math.max(r[0], Math.min(f.cursor, r[1]))));
+				g.fill(cx, y - 1, cx + 1, y + 9, Theme.FG);
+			}
+		}
+		g.disableScissor();
+		if (lines.size() > rows) {
+			int h = n.h - 6;
+			int th = Math.max(6, h * rows / lines.size());
+			int ty0 = n.y + 3 + (h - th) * f.topLine / Math.max(1, lines.size() - rows);
+			g.fill(n.x + n.w - 4, ty0, n.x + n.w - 2, ty0 + th, Theme.FAINT);
+		}
+		// How much is left, under the box's corner, once the text is near the limit.
+		if (focus && f.text.length() > f.max * 0.8) {
+			Component left = Component.literal((f.max - f.text.length()) + "");
+			g.text(font, left, n.x + n.w - 6 - font.width(left), n.y + n.h - 10, Theme.FAINT, false);
 		}
 	}
 
@@ -1095,7 +1134,12 @@ public final class UiScreen extends Screen implements Fitting {
 		if (f != null && !event.isEscape()) {
 			int key = event.key();
 			boolean word = event.hasControlDown();
-			if (event.isConfirmation()) {
+			if (event.isConfirmation() && f.multiline && !event.hasControlDown()) {
+				f.insert("\n");
+			} else if (f.multiline && (event.isUp() || event.isDown())) {
+				Node n = focusedNode();
+				if (n != null) f.vertical(event.isUp() ? -1 : 1, f.wrap(n.w - 14, s -> font.width(s)), s -> font.width(s));
+			} else if (event.isConfirmation()) {
 				Node n = focusedNode();
 				JsonObject submit = n == null || n.flag("disabled") ? null : n.obj("submit");
 				if (submit != null) send(submit);
@@ -1260,7 +1304,12 @@ public final class UiScreen extends Screen implements Fitting {
 		if (field != null) {
 			focused = field.id;
 			UiField f = fields.get(field.id);
-			f.clickAt(mx - (field.x + 5), s -> font.width(s));
+			if (f.multiline) {
+				var lines = f.wrap(field.w - 14, s -> font.width(s));
+				f.clickAt(lines, f.topLine + (int) Math.floor((my - field.y - 4) / UiTree.LINE), mx - (field.x + 5), s -> font.width(s));
+			} else {
+				f.clickAt(mx - (field.x + 5), s -> font.width(s));
+			}
 			return true;
 		}
 		focused = null;

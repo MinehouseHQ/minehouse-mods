@@ -188,7 +188,8 @@ public final class UiTree {
 				yield Math.max(1, n.lines.size()) * LINE - 1;
 			}
 			case "button" -> n.str("style", "primary").equals("link") ? LINE + 2 : BUTTON_H;
-			case "input", "slider" -> BUTTON_H;
+			case "slider" -> BUTTON_H;
+			case "input" -> n.num("rows", 1) > 1 ? Math.min(20, n.num("rows", 1)) * LINE + 7 : BUTTON_H;
 			case "item" -> 16;
 			case "swatch" -> 12;
 			case "model" -> 32;
