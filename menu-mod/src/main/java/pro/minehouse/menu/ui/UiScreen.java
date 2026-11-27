@@ -793,7 +793,7 @@ public final class UiScreen extends Screen implements Fitting {
 	}
 
 	/** A card with 3 px rounded corners: background and a 1 px border, without overlapping (the background is see-through). */
-	static void card(GuiGraphicsExtractor g, int x0, int y0, int x1, int y1, int bg, int border) {
+	public static void card(GuiGraphicsExtractor g, int x0, int y0, int x1, int y1, int bg, int border) {
 		if (bg != 0) {
 			g.fill(x0 + 3, y0 + 1, x1 - 3, y0 + 2, bg);
 			g.fill(x0 + 2, y0 + 2, x1 - 2, y0 + 3, bg);

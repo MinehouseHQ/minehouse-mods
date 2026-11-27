@@ -22,6 +22,7 @@
     "ItemStackRenderStateAccess",
     "LayerRenderStateAccess",
     "PlayerModelMixin",
+    "PlayerTabOverlayMixin",
     "TeardownFrameMixin"
   ],
   "injectors": {

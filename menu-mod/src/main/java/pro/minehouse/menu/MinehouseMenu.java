@@ -13,5 +13,6 @@ public final class MinehouseMenu implements ClientModInitializer {
 		MenuConfig.load();
 		PackUpdater.start();
 		pro.minehouse.menu.wardrobe.Wardrobe.init();
+		pro.minehouse.menu.tab.TabNet.init();
 	}
 }
