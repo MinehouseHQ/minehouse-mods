@@ -29,6 +29,11 @@ loom {
 			runDir = project.findProperty("selftestDir") ?: "run-selftest"
 			vmArg "-Dminehouse.selftest=${project.findProperty("selftest") ?: "true"}"
 			programArgs "--username", "Steve"
+			// -Pjoin=localhost:25565: run it in a world on that server (the ui test then shows the explainers with their floor).
+			if (project.hasProperty("join")) {
+				programArgs "--quickPlayMultiplayer", project.property("join")
+				vmArg "-Dminehouse.ui.world=true"
+			}
 		}
 		// Joins a local server, draws made-up zones, saves run-demo/screenshots/zones-demo.png and exits.
 		// Start any 26.3 server on localhost:25565 (online-mode=false) first.

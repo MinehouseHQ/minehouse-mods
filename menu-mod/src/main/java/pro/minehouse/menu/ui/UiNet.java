@@ -65,6 +65,17 @@ public final class UiNet {
 		}
 	}
 
+	/** Registered only to tell the server this client draws event explainers (node "explainer", client 1.40.0+). */
+	public record ExplainerFeature() implements CustomPacketPayload {
+		static final Type<ExplainerFeature> TYPE = new Type<>(Identifier.fromNamespaceAndPath(NS, "explainer"));
+		static final StreamCodec<FriendlyByteBuf, ExplainerFeature> CODEC = StreamCodec.unit(new ExplainerFeature());
+
+		@Override
+		public Type<ExplainerFeature> type() {
+			return TYPE;
+		}
+	}
+
 	private UiNet() {
 	}
 
@@ -75,6 +86,10 @@ public final class UiNet {
 		PayloadTypeRegistry.clientboundPlay().register(WheelFeature.TYPE, WheelFeature.CODEC);
 		ClientPlayNetworking.registerGlobalReceiver(WheelFeature.TYPE, (payload, context) -> {
 		});
+		PayloadTypeRegistry.clientboundPlay().register(ExplainerFeature.TYPE, ExplainerFeature.CODEC);
+		ClientPlayNetworking.registerGlobalReceiver(ExplainerFeature.TYPE, (payload, context) -> {
+		});
+		net.fabricmc.fabric.api.client.rendering.v1.PictureInPictureRendererRegistry.register(context -> new pro.minehouse.menu.explainer.ExplainerRenderer());
 		ClientPlayNetworking.registerGlobalReceiver(WindowPayload.TYPE, (payload, context) -> receive(context.client(), payload.json()));
 		ClientPlayNetworking.registerGlobalReceiver(ClosePayload.TYPE, (payload, context) -> {
 			if (context.client().gui.screen() instanceof UiScreen screen && screen.id().equals(payload.id())) screen.closeByServer();

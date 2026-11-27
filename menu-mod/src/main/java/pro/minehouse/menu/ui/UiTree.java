@@ -106,7 +106,7 @@ public final class UiTree {
 		/** Takes the width of its column (else its own width). */
 		boolean fills() {
 			return switch (type) {
-				case "col", "card", "row", "tabs", "divider", "text", "model" -> true;
+				case "col", "card", "row", "tabs", "divider", "text", "model", "explainer" -> true;
 				default -> false;
 			};
 		}
@@ -136,7 +136,7 @@ public final class UiTree {
 			case "item" -> 16;
 			case "swatch" -> 12;
 			case "model" -> 32;
-			case "image", "space", "divider", "tabs" -> 0;
+			case "image", "space", "divider", "tabs", "explainer" -> 0;
 			case "grid" -> gridWidth(n);
 			case "row" -> {
 				int w = 0;
@@ -190,6 +190,7 @@ public final class UiTree {
 			case "swatch" -> 12;
 			case "model" -> 32;
 			case "image" -> Math.max(0, n.fixedH);
+			case "explainer" -> 132;
 			case "divider" -> 1;
 			case "space" -> 0;
 			case "tabs" -> {

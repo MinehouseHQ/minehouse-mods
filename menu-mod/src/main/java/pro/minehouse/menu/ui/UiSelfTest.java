@@ -26,7 +26,9 @@ final class UiSelfTest {
 	static void register() {
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
 			// Wait for the title screen: item components are bound only after the resources load.
-			if (ticks == 0 && (client.gui.overlay() != null || !(client.gui.screen() instanceof net.minecraft.client.gui.screens.TitleScreen))) return;
+			// (or in a world, for a local look at the explainers with blocks: -Dminehouse.ui.world=true, see demoClient).
+			boolean inWorld = client.player != null && client.gui.screen() == null && Boolean.getBoolean("minehouse.ui.world");
+			if (ticks == 0 && !inWorld && (client.gui.overlay() != null || !(client.gui.screen() instanceof net.minecraft.client.gui.screens.TitleScreen))) return;
 			ticks++;
 			try {
 				if (ticks == 20) {
@@ -65,6 +67,17 @@ final class UiSelfTest {
 					Screenshot.grab(client.gameDirectory, "ui-wheel.png", client.gameRenderer.mainRenderTarget(), 1,
 							msg -> MinehouseMenu.LOG.info("Screenshot: {}", msg.getString()));
 				} else if (ticks == 190) {
+					// The dungeon events' explainers (MineHouse End RoomIntro), one screenshot each.
+					UiNet.receive(client, resource("ui-explainer.json").replace("SCENE", SCENES[0]));
+					check(client.gui.screen() instanceof UiScreen, "the explainer opens");
+				} else if (ticks > 190 && ticks < 190 + SCENES.length * 60 && (ticks - 190) % 60 == 0) {
+					int i = (ticks - 190) / 60;
+					UiNet.receive(client, resource("ui-explainer.json").replace("SCENE", SCENES[i]).replace("\"rev\":1", "\"rev\":" + (i + 1)));
+				} else if (ticks > 190 && ticks < 190 + SCENES.length * 60 && (ticks - 190) % 60 == 45) {
+					String name = "ui-explainer-" + SCENES[(ticks - 190) / 60] + ".png";
+					Screenshot.grab(client.gameDirectory, name, client.gameRenderer.mainRenderTarget(), 1,
+							msg -> MinehouseMenu.LOG.info("Screenshot: {}", msg.getString()));
+				} else if (ticks == 190 + SCENES.length * 60 + 60) {
 					MinehouseMenu.LOG.info(problem == null ? "MINEHOUSE_UI_OK" : "MINEHOUSE_UI_FAIL: " + problem);
 					client.stop();
 				}
@@ -74,6 +87,8 @@ final class UiSelfTest {
 			}
 		});
 	}
+
+	private static final String[] SCENES = {"reflection", "gravity", "darkness", "lava", "merchant", "altar", "timer"};
 
 	private static void check(boolean ok, String what) {
 		if (!ok && problem == null) problem = what;

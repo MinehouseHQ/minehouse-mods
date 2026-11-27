@@ -36,6 +36,8 @@ import net.minecraft.world.item.component.CustomModelData;
 import net.minecraft.world.item.component.DyedItemColor;
 import net.minecraft.world.phys.Vec3;
 
+import pro.minehouse.menu.explainer.Explainer;
+import pro.minehouse.menu.explainer.ExplainerRenderer;
 import pro.minehouse.menu.ui.UiTree.Node;
 import pro.minehouse.menu.ui.UiTree.Theme;
 import pro.minehouse.menu.wardrobe.Fitting;
@@ -469,6 +471,7 @@ public final class UiScreen extends Screen implements Fitting {
 				g.item(stack, n.x + (n.w - 16) / 2, n.y + (n.h - 16) / 2);
 			}
 			case "model" -> model(g, n, hot, time);
+			case "explainer" -> explainer(g, n);
 			case "swatch" -> swatch(g, n, hover);
 			case "divider" -> g.fill(n.x, n.y, n.x + n.w, n.y + 1, color(n, "color", Theme.BORDER));
 			case "image" -> {
@@ -612,6 +615,59 @@ public final class UiScreen extends Screen implements Fitting {
 				g.item(icon, mid - 8, iy);
 			}
 		}
+	}
+
+	/**
+	 * A hall event's looping 3D scene (MineHouse End): the stage, the darkness over it with the
+	 * glowing mobs on top, a countdown bar, and the step's caption under it.
+	 */
+	private void explainer(GuiGraphicsExtractor g, Node n) {
+		float t = (System.currentTimeMillis() - openedAt) / 1000f;
+		Explainer.Frame f;
+		try {
+			f = Explainer.frame(n.str("scene", ""), t, pro.minehouse.menu.Tr.russian());
+		} catch (RuntimeException e) {
+			Explainer.warnOnce("scene " + n.str("scene", ""), e);
+			f = null;
+		}
+		if (f == null) return;
+		int x0 = n.x;
+		int y0 = n.y;
+		int x1 = n.x + n.w;
+		int y1 = n.y + n.h;
+		// Caption: up to two lines under the stage.
+		var lines = font.split(Component.literal(f.caption()), n.w - 10);
+		if (lines.size() > 2) lines = lines.subList(0, 2);
+		int capH = 6 + lines.size() * 9;
+		int sy1 = y1 - capH;
+		card(g, x0, y0, x1, y1, f.bg(), color(n, "border", Theme.BORDER));
+		float scale = n.w / 7f;
+		float lift = (sy1 - y0) * 0.3f / scale;
+		var clip = g.scissorStack.peek();
+		g.guiRenderState.addPicturesInPictureState(new ExplainerRenderer.State(f.world(), 18, 14, lift, x0 + 1, y0 + 1, x1 - 1, sy1, scale, clip));
+		if (f.dark() > 0) g.fill(x0 + 1, y0 + 1, x1 - 1, sy1, (int) (f.dark() * 255) << 24 | 0x05050A);
+		if (!f.glow().isEmpty()) {
+			g.guiRenderState.addPicturesInPictureState(new ExplainerRenderer.State(f.glow(), 18, 14, lift, x0 + 1, y0 + 1, x1 - 1, sy1, scale, clip));
+		}
+		if (f.bar() >= 0) {
+			int bx0 = x0 + 10;
+			int bx1 = x1 - 10;
+			g.fill(bx0, y0 + 14, bx1, y0 + 18, 0xFF3F3F46);
+			int fill = bx0 + Math.round((bx1 - bx0) * f.bar());
+			if (fill > bx0) g.fill(bx0, y0 + 14, fill, y0 + 18, f.bar() < 0.25f ? 0xFFEF4444 : 0xFFF87171);
+		}
+		// A dot per step, top right.
+		for (int i = 0; i < f.steps(); i++) {
+			int dx = x1 - 6 - (f.steps() - i) * 6;
+			g.fill(dx, y0 + 6, dx + 3, y0 + 9, i == f.step() ? Theme.ACCENT : 0xFF52525B);
+		}
+		g.fill(x0 + 1, sy1, x1 - 1, y1 - 1, 0xC0000000);
+		for (int i = 0; i < lines.size(); i++) {
+			var line = lines.get(i);
+			g.text(font, line, x0 + (n.w - font.width(line)) / 2, sy1 + 4 + i * 9, Theme.FG, false);
+		}
+		float loop = (t % f.length()) / f.length();
+		g.fill(x0 + 1, sy1 - 1, x0 + 1 + Math.round((n.w - 2) * loop), sy1, 0x60FFFFFF);
 	}
 
 	private void model(GuiGraphicsExtractor g, Node n, boolean hot, float time) {
