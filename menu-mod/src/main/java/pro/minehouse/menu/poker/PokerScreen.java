@@ -101,6 +101,8 @@ public final class PokerScreen extends Screen {
 	private long lastHandsFrame;
 	/** The action panel's top-left corner, for the wheel: over it the wheel moves the slider, elsewhere it zooms. */
 	private int panelX0, panelY0;
+	/** Top edge of the panel's own box, drawn this frame (height when there is none). */
+	private int panelTop;
 
 	// Layout, recomputed each frame.
 	private int cx, cy, pw = 196;
@@ -678,6 +680,7 @@ public final class PokerScreen extends Screen {
 		drawTop(g);
 		drawLog(g);
 		drawPanel(g, mouseX, mouseY);
+		drawBoardStrip(g);
 		drawHands(g, mouseX, mouseY);
 		if (PokerCamera.holding) {
 			g.centeredText(font, Component.literal(Tr.s("Наведи на карты — раскрыть веер, зажми — поднести ближе · тяни — оглядеться",
@@ -1047,6 +1050,7 @@ public final class PokerScreen extends Screen {
 	private void drawPanel(GuiGraphicsExtractor g, int mouseX, int mouseY) {
 		buttons.clear();
 		sliderMax = 0;
+		panelTop = height;
 		int x0 = width - pw - 6;
 		int x1 = width - 6;
 		int y1 = height - 6;
@@ -1061,6 +1065,7 @@ public final class PokerScreen extends Screen {
 			boolean check = flag(o, "check");
 			int y0 = y1 - (max > 0 ? 70 : 36);
 			card(g, x0, y0, x1, y1, PANEL, GOLD);
+			panelTop = y0;
 			// Time left to move, along the top edge.
 			long left = Math.max(0, leftMs - (System.currentTimeMillis() - receivedAt));
 			float k = Mth.clamp(left / (float) turnMs, 0, 1);
@@ -1096,6 +1101,7 @@ public final class PokerScreen extends Screen {
 			long max = num(state, "max");
 			int y0 = y1 - 62;
 			card(g, x0, y0, x1, y1, PANEL, PANEL_BORDER);
+			panelTop = y0;
 			int by = y0 + 6;
 			int half = (pw - 14) / 2;
 			if (flag(me, "out")) button(x0 + 6, by, x0 + 6 + half, by + 24, Tr.s("Вернуться", "Back in"), 0xFF2F7A4A, () -> act("back", 0), true, null);
@@ -1116,6 +1122,7 @@ public final class PokerScreen extends Screen {
 			long max = num(state, "max");
 			int y0 = y1 - 62;
 			card(g, x0, y0, x1, y1, PANEL, GOLD);
+			panelTop = y0;
 			g.text(font, Component.literal(Tr.s("За стол", "Take a seat")).withStyle(st -> st.withBold(true)), x0 + 8, y0 + 6, 0xFFF5F5F5, false);
 			Component range = Component.literal(min + "–" + max);
 			g.text(font, range, x1 - 8 - font.width(range), y0 + 6, 0xFF8A8A95, false);
@@ -1138,8 +1145,23 @@ public final class PokerScreen extends Screen {
 			int mid = (b.x0() + b.x1()) / 2;
 			int top = (b.y0() + b.y1()) / 2 - lines.length * 5 + 1;
 			for (int l = 0; l < lines.length; l++) {
-				Component c = Component.literal(lines[l]).withStyle(st -> st.withBold(lines.length == 1 && b.y1() - b.y0() > 18));
-				g.centeredText(font, c, mid, top + l * 10, l == 1 ? (b.enabled() ? 0xFFFFE6A0 : color) : color);
+				int room = b.x1() - b.x0() - 8;
+				boolean bold = lines.length == 1 && b.y1() - b.y0() > 18 && font.width(Component.literal(lines[l]).withStyle(st -> st.withBold(true))) <= room;
+				Component c = Component.literal(lines[l]).withStyle(st -> st.withBold(bold));
+				int lc = l == 1 ? (b.enabled() ? 0xFFFFE6A0 : color) : color;
+				int w = font.width(c);
+				if (w <= room) {
+					g.centeredText(font, c, mid, top + l * 10, lc);
+				} else {
+					// Too long for the button (a wide number, a narrow window): shrink it to fit.
+					float k = room / (float) w;
+					var pose = g.pose();
+					pose.pushMatrix();
+					pose.translate(mid, top + l * 10 + 4);
+					pose.scale(k, k);
+					g.text(font, c, -w / 2, -4, lc, true);
+					pose.popMatrix();
+				}
 			}
 			if (b.key() != null && b.enabled() && b.x1() - b.x0() > 40) g.text(font, Component.literal(b.key()), b.x1() - 7, b.y0() + 2, 0x70FFFFFF, false);
 		}
@@ -1273,10 +1295,10 @@ public final class PokerScreen extends Screen {
 
 		JsonObject me = you >= 0 ? seat(you) : null;
 		int mine = me != null && me.has("hand") ? handRow(me.get("hand").getAsString()) : -1;
-		int rowH = 25;
+		int rowH = 27;
 		int x0 = 6;
 		int y0 = 52;
-		int x1 = x0 + 232;
+		int x1 = x0 + 262;
 		int y1 = y0 + 20 + HANDS.length * rowH + 4;
 		card(g, x0, y0, x1, y1, PANEL, GOLD);
 		g.text(font, Component.literal(Tr.s("От сильной к слабой", "Best to worst")).withStyle(st -> st.withBold(true)), x0 + 8, y0 + 7, 0xFFF5F5F5, false);
@@ -1285,24 +1307,79 @@ public final class PokerScreen extends Screen {
 			int y = y0 + 20 + i * rowH;
 			if (i == mine) g.fill(x0 + 3, y, x1 - 3, y + rowH - 1, 0x40E0B040);
 			int color = i == mine ? GOLD : 0xFFE4E4E7;
-			g.text(font, Component.literal((i + 1) + "."), x0 + 8, y + 8, 0xFF8A8A95, false);
+			g.text(font, Component.literal((i + 1) + "."), x0 + 8, y + 9, 0xFF8A8A95, false);
 			Component name = Component.literal(Tr.s(HANDS[i][0], HANDS[i][1])).withStyle(st -> st.withBold(i == mine));
-			g.text(font, name, x0 + 24, y + 8, color, false);
+			g.text(font, name, x0 + 24, y + 9, color, false);
 			String[] cards = HANDS[i][2].split(" ");
 			for (int c = 0; c < cards.length; c++) {
 				boolean kicker = Character.isLowerCase(cards[c].charAt(cards[c].length() - 1));
-				int cx0 = x1 - 8 - (cards.length - c) * 16;
-				miniCard(g, texture(cards[c]), cx0, y + 1, kicker);
+				int cx0 = x1 - 8 - (cards.length - c) * 22;
+				miniCard(g, cards[c], cx0, y + 2, kicker);
 			}
 		}
 	}
 
-	/** A small card for the rankings: 15×23, dim when it is only a kicker. */
-	private static void miniCard(GuiGraphicsExtractor g, Identifier tex, int x, int y, boolean dim) {
-		int w = 15;
-		int h = 23;
-		g.fill(x + 1, y + 1, x + w + 1, y + h + 1, 0x50000000);
-		g.blit(RenderPipelines.GUI_TEXTURED, tex, x, y, 0F, 0F, w, h, CW, CH, CW, CH, dim ? 0xFF6A6A6A : 0xFFFFFFFF);
+	/**
+	 * Over the table in the world: the cards on the board, flat and large, in a strip right over the
+	 * panel, so they read at a glance from any camera angle. Empty slots show what is still to come.
+	 */
+	private void drawBoardStrip(GuiGraphicsExtractor g) {
+		if (state == null || panelTop >= height || stage == null || "waiting".equals(stage)) return;
+		List<String> b = boardCards();
+		int x0 = width - pw - 6;
+		int x1 = width - 6;
+		int gap = 3;
+		int w = Math.min(28, (pw - 12 - 4 * gap) / 5);
+		int h = Math.round(w * CH / (float) CW);
+		// Leave a line free over the panel for «Ходит …».
+		int y1 = panelTop - 14;
+		int y0 = y1 - h - 10;
+		card(g, x0, y0, x1, y1, PANEL, PANEL_BORDER);
+		int row = 5 * w + 4 * gap;
+		int cx0 = (x0 + x1 - row) / 2;
+		for (int k = 0; k < 5; k++) {
+			int x = cx0 + k * (w + gap);
+			int y = y0 + 5;
+			if (k < b.size()) {
+				g.fill(x + 1, y + 1, x + w + 1, y + h + 1, 0x60000000);
+				g.blit(RenderPipelines.GUI_TEXTURED, texture(b.get(k)), x, y, 0F, 0F, w, h, CW, CH, CW, CH, 0xFFFFFFFF);
+			} else {
+				g.fill(x, y, x + w, y + h, 0x30FFFFFF);
+				g.fill(x + 1, y + 1, x + w - 1, y + h - 1, 0xC0101014);
+			}
+		}
+	}
+
+	/**
+	 * A small card for the rankings, 20×24: the card's art is unreadable that small, so just its
+	 * rank and suit, large, red or black, like the corner of a real card. Dim when only a kicker.
+	 */
+	private void miniCard(GuiGraphicsExtractor g, String code, int x, int y, boolean dim) {
+		int w = 20;
+		int h = 24;
+		String c = code.toUpperCase(java.util.Locale.ROOT);
+		String rank = c.charAt(0) == 'T' ? "10" : String.valueOf(c.charAt(0));
+		char suit = c.charAt(1);
+		String glyph = switch (suit) {
+			case 'S' -> "\u2660";
+			case 'H' -> "\u2665";
+			case 'D' -> "\u2666";
+			default -> "\u2663";
+		};
+		boolean red = suit == 'H' || suit == 'D';
+		g.fill(x + 1, y + 1, x + w + 1, y + h + 1, 0x60000000);
+		g.fill(x, y, x + w, y + h, dim ? 0xFF8C8C92 : 0xFFF7F4EC);
+		g.fill(x, y, x + w, y + 1, dim ? 0xFFA0A0A6 : 0xFFFFFFFF);
+		int ink = red ? (dim ? 0xFF7A3434 : 0xFFD32F2F) : (dim ? 0xFF2A2A2E : 0xFF16161A);
+		Component r = Component.literal(rank).withStyle(st -> st.withBold(true));
+		g.text(font, r, x + (w - font.width(r)) / 2 + 1, y + 2, ink, false);
+		var pose = g.pose();
+		pose.pushMatrix();
+		pose.translate(x + w / 2F, y + 16);
+		pose.scale(1.4F, 1.4F);
+		Component sg = Component.literal(glyph);
+		g.text(font, sg, -font.width(sg) / 2, -4, ink, false);
+		pose.popMatrix();
 	}
 
 	// ------------------------------------------------------------------ input

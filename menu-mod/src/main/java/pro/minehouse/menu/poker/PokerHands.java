@@ -95,6 +95,9 @@ public final class PokerHands extends PictureInPictureRenderer<PokerHands.State>
 				// The model lies flat (face up, +y): stand it up facing the camera (the item renderer
 				// itself puts the model's middle on the origin).
 				own.rotateDegrees(Axis.XP, -90);
+				// The face's top edge lies towards -z in the model: turn it in its own plane so the
+				// card reads upright, not upside down.
+				own.rotateDegrees(Axis.YP, 180);
 				item.submit(own, collector, FULL_BRIGHT, OverlayTexture.NO_OVERLAY, 0);
 			}
 		}
