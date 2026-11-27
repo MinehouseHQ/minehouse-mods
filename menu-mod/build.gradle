@@ -23,12 +23,19 @@ loom {
 		//   xvfb-run ./gradlew runSelftestClient -Pselftest=editor  show editor panel screenshot
 		//   xvfb-run ./gradlew runSelftestClient -Pselftest=zones   zone packet, codec, gizmos
 		//   xvfb-run ./gradlew runSelftestClient -Pselftest=rift    Rift view packet, codec, mixins, geometry
+		//   xvfb-run ./gradlew runSelftestClient -Pselftest=poker   poker table screenshots (poker-*.png)
+		//   xvfb-run ./gradlew runSelftestClient -Pselftest=pokerworld -Pjoin=localhost:25565   the table in the world (bank-mod runPokerDemo)
 		selftestClient {
 			client()
 			name = "Self-test client"
 			runDir = project.findProperty("selftestDir") ?: "run-selftest"
 			vmArg "-Dminehouse.selftest=${project.findProperty("selftest") ?: "true"}"
 			programArgs "--username", "Steve"
+			// -Psize=960x540: window size (the poker test looks at the table on a few).
+			if (project.hasProperty("size")) {
+				def wh = project.property("size").toString().split("x")
+				programArgs "--width", wh[0], "--height", wh[1]
+			}
 			// -Pjoin=localhost:25565: run it in a world on that server (the ui test then shows the explainers with their floor).
 			if (project.hasProperty("join")) {
 				programArgs "--quickPlayMultiplayer", project.property("join")

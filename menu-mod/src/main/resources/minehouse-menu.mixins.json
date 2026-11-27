@@ -5,6 +5,7 @@
   "client": [
     "AvatarRendererMixin",
     "CameraMixin",
+    "PokerHudMixin",
     "EntityRenderDispatcherMixin",
     "EquipmentAssetsAccess",
     "GuiMixin",

@@ -31,6 +31,7 @@ public final class Wardrobe {
 	public static void init() {
 		WardrobeNet.init();
 		pro.minehouse.menu.ui.UiNet.init();
+		pro.minehouse.menu.poker.PokerNet.init();
 		WardrobeSelf.init();
 		PetPat.init();
 		WardrobeRoute.init();

@@ -13,7 +13,7 @@ import net.minecraft.world.phys.Vec3;
 import pro.minehouse.menu.wardrobe.PetPat;
 import pro.minehouse.menu.wardrobe.WardrobeCamera;
 
-/** While the wardrobe is open the camera stands in front of the player in the world; stroking a pet, over the shoulder. */
+/** While the wardrobe is open the camera stands in front of the player in the world; at poker, over the table; stroking a pet, over the shoulder. */
 @Mixin(Camera.class)
 public abstract class CameraMixin {
 	@Shadow
@@ -36,6 +36,13 @@ public abstract class CameraMixin {
 			detached = true;
 			setRotation(shot.yRot(), shot.xRot());
 			setPosition(shot.position());
+			return;
+		}
+		pro.minehouse.menu.poker.PokerCamera.Shot poker = pro.minehouse.menu.poker.PokerCamera.shot(entity, level, partialTicks);
+		if (poker != null) {
+			detached = true;
+			setRotation(poker.yRot(), poker.xRot());
+			setPosition(poker.position());
 			return;
 		}
 		PetPat.Shot pat = PetPat.shot(entity, level, partialTicks);
