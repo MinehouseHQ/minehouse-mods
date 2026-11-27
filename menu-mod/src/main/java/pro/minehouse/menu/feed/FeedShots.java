@@ -20,6 +20,7 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
@@ -30,7 +31,8 @@ import pro.minehouse.menu.MinehouseMenu;
  * F2 into the site feed (MineHouse Chat 0.14.0+, chat-mod {@code FeedShots}). The server says it takes
  * screenshots ({@code feed_hello}); after F2 we tell it the size of the new picture, and it offers
  * [В ленту] in chat. Only when the player clicks it does the server send an upload link: we PUT the PNG
- * there (scaled down if it's too big) and report back. Nothing leaves the computer before that click.
+ * there (scaled down if it's too big) and report back. The uploaded picture stays as a small texture,
+ * so the server's /post window can show it ({@link ThumbsFeature}). Nothing leaves the computer before that click.
  */
 public final class FeedShots {
 	static final String NS = "minehouse";
@@ -91,6 +93,24 @@ public final class FeedShots {
 		}
 	}
 
+	/**
+	 * Sent by nobody: a client that registers it shows uploaded screenshots in server windows as the
+	 * texture {@code minehouse:feed_shot/<id>} (ServerUi "image" nodes, client 1.51.0+).
+	 */
+	public record ThumbsFeature() implements CustomPacketPayload {
+		static final Type<ThumbsFeature> TYPE = new Type<>(Identifier.fromNamespaceAndPath(NS, "feed_thumbs"));
+		static final StreamCodec<FriendlyByteBuf, ThumbsFeature> CODEC = StreamCodec.unit(new ThumbsFeature());
+
+		@Override
+		public Type<ThumbsFeature> type() {
+			return TYPE;
+		}
+	}
+
+	/** Thumbnail width; the height keeps the screenshot's proportions. */
+	private static final int THUMB_W = 256;
+	private static final java.util.Set<Identifier> thumbs = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
 	private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 	private static volatile boolean on;
 	/** The last F2 picture, the one an upload link is for. */
@@ -102,13 +122,17 @@ public final class FeedShots {
 	public static void init() {
 		PayloadTypeRegistry.clientboundPlay().register(HelloPayload.TYPE, HelloPayload.CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(UploadPayload.TYPE, UploadPayload.CODEC);
+		PayloadTypeRegistry.clientboundPlay().register(ThumbsFeature.TYPE, ThumbsFeature.CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(ShotPayload.TYPE, ShotPayload.CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(UploadedPayload.TYPE, UploadedPayload.CODEC);
 		ClientPlayNetworking.registerGlobalReceiver(HelloPayload.TYPE, (p, ctx) -> on = p.on());
 		ClientPlayNetworking.registerGlobalReceiver(UploadPayload.TYPE, (p, ctx) -> upload(p));
+		ClientPlayNetworking.registerGlobalReceiver(ThumbsFeature.TYPE, (p, ctx) -> {
+		});
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
 			on = false;
 			last = null;
+			client.execute(FeedShots::releaseThumbs);
 		});
 	}
 
@@ -221,11 +245,51 @@ public final class FeedShots {
 					}
 				}
 			}
+			NativeImage thumb = error.isEmpty() ? thumbnail(file) : null;
 			String result = error;
-			Minecraft.getInstance().execute(() -> reply(p.id(), result));
+			Minecraft.getInstance().execute(() -> {
+				if (thumb != null) {
+					registerThumb(p.id(), thumb);
+				}
+				reply(p.id(), result);
+			});
 		}, "MineHouse feed upload");
 		t.setDaemon(true);
 		t.start();
+	}
+
+	/** A small copy of the screenshot for the server's windows, or null. */
+	private static NativeImage thumbnail(Path file) {
+		try (NativeImage src = NativeImage.read(Files.readAllBytes(file))) {
+			int w = Math.min(THUMB_W, src.getWidth());
+			int h = Math.max(1, Math.round(src.getHeight() * (w / (float) src.getWidth())));
+			NativeImage dst = new NativeImage(w, h, false);
+			src.resizeSubRectTo(0, 0, src.getWidth(), src.getHeight(), dst);
+			return dst;
+		} catch (IOException | RuntimeException e) {
+			MinehouseMenu.LOG.debug("Feed shot thumbnail failed: {}", e.getMessage());
+			return null;
+		}
+	}
+
+	/** The texture a server window shows for an uploaded screenshot (ids are the site's UUIDs). */
+	static Identifier thumbId(String id) {
+		return Identifier.fromNamespaceAndPath(NS, "feed_shot/" + id.toLowerCase(java.util.Locale.ROOT).replaceAll("[^0-9a-f-]", ""));
+	}
+
+	private static void registerThumb(String id, NativeImage image) {
+		Identifier key = thumbId(id);
+		DynamicTexture texture = new DynamicTexture(key::toString, image);
+		texture.upload();
+		Minecraft.getInstance().getTextureManager().register(key, texture);
+		thumbs.add(key);
+	}
+
+	private static void releaseThumbs() {
+		for (Identifier key : thumbs) {
+			Minecraft.getInstance().getTextureManager().release(key);
+		}
+		thumbs.clear();
 	}
 
 	/** The picture at half the size, as PNG. */
