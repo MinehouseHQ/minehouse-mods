@@ -19,6 +19,7 @@ final class PokerSelfTest {
 	private static int ticks;
 	private static String problem;
 	private static int seenDisplays;
+	private static boolean clickFailed;
 
 	private PokerSelfTest() {
 	}
@@ -33,8 +34,19 @@ final class PokerSelfTest {
 			ticks++;
 			try {
 				if (ticks == 60) shot(client, "pw-00-before.png");
-				if (ticks == 70) client.getConnection().sendCommand("poker demo");
-				if (ticks > 70 && client.gui.screen() instanceof PokerScreen s && ticks % 30 == 0) s.autoPlay();
+				if (ticks == 70) client.getConnection().sendCommand("poker demo standing");
+				// Sit down with a real mouse click (xdotool clicks where this line says, see bank-mod's README): the panel must take the mouse.
+				if (ticks >= 100 && ticks < 300 && ticks % 20 == 0 && client.gui.screen() instanceof PokerScreen s && s.you() < 0) {
+					int[] b = s.firstButton();
+					double k = client.getWindow().getGuiScale();
+					if (b != null) MinehouseMenu.LOG.info("POKER_CLICK_AT {} {} (mouse at {} {}, grabbed {}, screen {})", Math.round(b[0] * k), Math.round(b[1] * k), client.mouseHandler.xpos(), client.mouseHandler.ypos(), client.mouseHandler.isMouseGrabbed(), client.gui.screen());
+				}
+				if (ticks == 300) {
+					boolean sat = client.gui.screen() instanceof PokerScreen s && s.you() >= 0;
+					MinehouseMenu.LOG.info("Poker world: sat with a mouse click: {}", sat);
+					if (!sat) clickFailed = true;
+				}
+				if (ticks > 300 && client.gui.screen() instanceof PokerScreen s && ticks % 30 == 0) s.autoPlay();
 				if (ticks > 70 && ticks % 40 == 0 && ticks <= 70 + 40 * 22) shot(client, String.format("pw-%02d.png", (ticks - 70) / 40));
 				if (ticks % 200 == 0 && client.level != null) {
 					int displays = 0;
@@ -50,7 +62,8 @@ final class PokerSelfTest {
 				}
 				if (ticks == 70 + 40 * 23) {
 					MinehouseMenu.LOG.info(!(client.gui.screen() instanceof PokerScreen) ? "MINEHOUSE_POKER_WORLD_FAIL: no table screen"
-								: seenDisplays == 0 ? "MINEHOUSE_POKER_WORLD_FAIL: no cards or chips in the world" : "MINEHOUSE_POKER_WORLD_OK");
+								: seenDisplays == 0 ? "MINEHOUSE_POKER_WORLD_FAIL: no cards or chips in the world"
+								: clickFailed ? "MINEHOUSE_POKER_WORLD_FAIL: a mouse click on Sit did nothing" : "MINEHOUSE_POKER_WORLD_OK");
 					client.stop();
 				}
 			} catch (RuntimeException e) {

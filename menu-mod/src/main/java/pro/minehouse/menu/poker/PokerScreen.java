@@ -153,6 +153,16 @@ public final class PokerScreen extends Screen {
 		return table;
 	}
 
+	/** Self-test: the middle of the first enabled button (GUI coordinates), or null. */
+	int[] firstButton() {
+		for (Button b : buttons) if (b.enabled()) return new int[] {(b.x0() + b.x1()) / 2, (b.y0() + b.y1()) / 2};
+		return null;
+	}
+
+	int you() {
+		return you;
+	}
+
 	void closeByServer() {
 		closedByServer = true;
 		onClose();
@@ -971,7 +981,13 @@ public final class PokerScreen extends Screen {
 		if ("waiting".equals(stage) || "done".equals(stage) && num(state, "hand") == 0) {
 			int ready = 0;
 			for (int i = 0; i < 6; i++) if (seat(i) != null && num(seat(i), "stack") > 0 && !flag(seat(i), "out")) ready++;
-			Component m = Component.literal(ready < 2 ? Tr.s("Ждём игроков: нужно двое", "Waiting for players: two needed") : Tr.s("Сейчас раздадим…", "Dealing soon…"));
+			// Standing at the table does not count: say how many sit and, to someone standing, how to sit.
+			String text;
+			if (ready >= 2) text = Tr.s("Сейчас раздадим…", "Dealing soon…");
+			else if (you < 0) text = ready == 1 ? Tr.s("За столом 1 из 2 — садись: кнопка справа внизу", "1 of 2 seated — take a seat: button bottom right")
+					: Tr.s("Сядь за стол (кнопка справа внизу), нужно двое", "Take a seat (button bottom right), two needed");
+			else text = Tr.s("Ждём второго игрока: пусть сядет за стол", "Waiting for a second player to take a seat");
+			Component m = Component.literal(text);
 			int mw = font.width(m) + 16;
 			int my = world ? 36 : py(0.3F);
 			card(g, cx - mw / 2, my, cx + mw / 2, my + 16, 0xA0000000, 0);
@@ -1133,7 +1149,8 @@ public final class PokerScreen extends Screen {
 	public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
 		double mx = event.x();
 		double my = event.y();
-		if (event.button() != 0) return super.mouseClicked(event, doubleClick);
+		// Left is not 0 here: 26.3 numbers mouse buttons its own way (InputConstants).
+		if (event.button() != com.mojang.blaze3d.platform.InputConstants.MOUSE_BUTTON_LEFT) return super.mouseClicked(event, doubleClick);
 		for (Button b : buttons) {
 			if (b.enabled() && b.over(mx, my)) {
 				b.click().run();
