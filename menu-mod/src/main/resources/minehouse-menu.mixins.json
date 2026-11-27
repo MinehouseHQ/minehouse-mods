@@ -13,6 +13,7 @@
     "LivingEntityRendererMixin",
     "LivingEntityRendererSubmitMixin",
     "RidingMinecartSoundMixin",
+    "ScreenshotMixin",
     "ServerMenuButtonMixin",
     "ServerPackPushMixin",
     "ServerPackSourceMixin",
