@@ -57,6 +57,7 @@ public final class PokerNet {
 	}
 
 	public static void init() {
+		net.fabricmc.fabric.api.client.rendering.v1.PictureInPictureRendererRegistry.register(context -> new PokerHands());
 		PayloadTypeRegistry.clientboundPlay().register(StatePayload.TYPE, StatePayload.CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(ClosePayload.TYPE, ClosePayload.CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(ActPayload.TYPE, ActPayload.CODEC);

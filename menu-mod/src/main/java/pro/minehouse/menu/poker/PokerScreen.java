@@ -89,6 +89,18 @@ public final class PokerScreen extends Screen {
 	private long raiseTo;
 	private long buyIn;
 	private boolean dragging;
+	/** Turning the camera around the table with the mouse (drag on the free part of the screen). */
+	private boolean orbiting;
+	/** The hand rankings are open (the «Комбинации» button or H). */
+	private boolean showHands;
+	/** Where the table's middle is, for turning to it in first person. */
+	private Vec3 tableCenter;
+	/** First person: how far the held cards are fanned and raised (animated), and whether the mouse holds them up. */
+	private float fan, lift;
+	private boolean peeking;
+	private long lastHandsFrame;
+	/** The action panel's top-left corner, for the wheel: over it the wheel moves the slider, elsewhere it zooms. */
+	private int panelX0, panelY0;
 
 	// Layout, recomputed each frame.
 	private int cx, cy, pw = 196;
@@ -171,6 +183,7 @@ public final class PokerScreen extends Screen {
 	@Override
 	public void removed() {
 		PokerCamera.release();
+		PokerCamera.holding = false;
 		if (!closedByServer) PokerNet.send(table, "closed", 0, -1);
 		super.removed();
 	}
@@ -206,10 +219,10 @@ public final class PokerScreen extends Screen {
 		Vec3 center = new Vec3(w.get("x").getAsDouble(), w.get("y").getAsDouble(), w.get("z").getAsDouble());
 		float yaw = w.get("yaw").getAsFloat();
 		boolean playing = you >= 0 && !"waiting".equals(stage) && !flag(seat(you), "out");
-		if (playing) {
-			// Seats 0, 1 and 5 are on the table's front side (PokerWorld: seat i at 90° + 60°·i).
-			int side = Math.sin(Math.toRadians(90 + 60 * you)) >= 0 ? 1 : -1;
-			PokerCamera.over(center, yaw, side);
+		tableCenter = center;
+		PokerCamera.holding = playing && PokerCamera.firstPerson;
+		if (playing && !PokerCamera.firstPerson) {
+			PokerCamera.over(center, yaw, you);
 		} else {
 			PokerCamera.release();
 		}
@@ -637,6 +650,7 @@ public final class PokerScreen extends Screen {
 		drawTop(g);
 		drawLog(g);
 		drawPanel(g, mouseX, mouseY);
+		drawHands(g, mouseX, mouseY);
 	}
 
 	/** Over the table in the world: your cards, whose turn it is, the log and the panel; the rest is on the table. */
@@ -648,7 +662,8 @@ public final class PokerScreen extends Screen {
 			for (int c = 0; c < 2; c++) hole[i][c].update(now);
 		}
 		if (you >= 0) {
-			if (dealt[you] || hole[you][0].a > 0.01F) {
+			if (PokerCamera.holding) drawHeld(g, now, mouseX, mouseY);
+			else if (dealt[you] || hole[you][0].a > 0.01F) {
 				for (int c = 0; c < 2; c++) drawCard(g, hole[you][c]);
 			}
 			drawHero(g, now);
@@ -663,6 +678,16 @@ public final class PokerScreen extends Screen {
 		drawTop(g);
 		drawLog(g);
 		drawPanel(g, mouseX, mouseY);
+		drawHands(g, mouseX, mouseY);
+		if (PokerCamera.holding) {
+			g.centeredText(font, Component.literal(Tr.s("Наведи на карты — раскрыть веер, зажми — поднести ближе · тяни — оглядеться",
+					"Hover the cards to fan them, hold to bring them closer · drag to look around")), cx, 6, 0x90E4E4E7);
+		} else if (PokerCamera.hidesHud()) {
+			Component hint = Component.literal(PokerCamera.turned()
+					? Tr.s("Двойной клик — вид с твоего места", "Double-click: back to your seat view")
+					: Tr.s("Тяни мышью — крутить стол · колёсико — зум", "Drag to turn the table · wheel to zoom"));
+			g.centeredText(font, hint, cx, 6, 0x90E4E4E7);
+		}
 	}
 
 	private void playSounds(long now) {
@@ -1069,14 +1094,16 @@ public final class PokerScreen extends Screen {
 			boolean inHand = flag(me, "in") && !"done".equals(stage) && !"waiting".equals(stage);
 			long stack = num(me, "stack");
 			long max = num(state, "max");
-			int y0 = y1 - 36;
+			int y0 = y1 - 62;
 			card(g, x0, y0, x1, y1, PANEL, PANEL_BORDER);
 			int by = y0 + 6;
-			button(x0 + 6, by, x0 + 6 + bw, by + 24, Tr.s("Встать", "Stand up"), 0xFF3A3A46, () -> act("leave", 0), true, null);
-			if (flag(me, "out")) button(x0 + 8 + bw, by, x0 + 8 + 2 * bw, by + 24, Tr.s("Вернуться", "Back in"), 0xFF2F7A4A, () -> act("back", 0), true, null);
-			else button(x0 + 8 + bw, by, x0 + 8 + 2 * bw, by + 24, Tr.s("Отойти", "Sit out"), 0xFF3A3A46, () -> act("sitout", 0), true, null);
+			int half = (pw - 14) / 2;
+			if (flag(me, "out")) button(x0 + 6, by, x0 + 6 + half, by + 24, Tr.s("Вернуться", "Back in"), 0xFF2F7A4A, () -> act("back", 0), true, null);
+			else button(x0 + 6, by, x0 + 6 + half, by + 24, Tr.s("Отойти", "Sit out"), 0xFF3A3A46, () -> act("sitout", 0), true, null);
 			long add = Math.max(0, Math.min(max - stack, num(state, "min")));
-			button(x0 + 10 + 2 * bw, by, x1 - 6, by + 24, Tr.s("Докупить\n", "Top up\n") + add, 0xFF5A4A1A, () -> act("topup", add), !inHand && add > 0, null);
+			button(x0 + 8 + half, by, x1 - 6, by + 24, Tr.s("Докупить\n", "Top up\n") + add + Tr.s(" фишек", " chips"), 0xFF5A4A1A, () -> act("topup", add), !inHand && add > 0, null);
+			button(x0 + 6, y1 - 28, x1 - 6, y1 - 6, Tr.s("Выйти и забрать ", "Leave and cash out ") + stack + Tr.s(" фишек", " chips"), 0xFF6A2F2F,
+					() -> act("leave", 0), true, null);
 			if (toAct >= 0 && toAct != you && !"done".equals(stage)) {
 				JsonObject who = seat(toAct);
 				if (who != null) {
@@ -1094,9 +1121,14 @@ public final class PokerScreen extends Screen {
 			g.text(font, range, x1 - 8 - font.width(range), y0 + 6, 0xFF8A8A95, false);
 			buyIn = Mth.clamp(buyIn, min, max);
 			slider(g, x0 + 10, x1 - 10, y0 + 25, min, max, buyIn);
-			button(x0 + 6, y1 - 28, x1 - 6, y1 - 6, Tr.s("Сесть с ", "Sit with ") + buyIn + Tr.s(" АР", " AR"), 0xFF2F7A4A, () -> act("sit", buyIn), true, null);
+			button(x0 + 6, y1 - 28, x1 - 6, y1 - 6, Tr.s("Купить ", "Buy ") + buyIn + Tr.s(" фишек и сесть за стол", " chips and sit down"), 0xFF2F7A4A,
+					() -> act("sit", buyIn), true, null);
 		}
 
+		panelX0 = x0;
+		panelY0 = height;
+		for (Button b : buttons) panelY0 = Math.min(panelY0, b.y0() - 8);
+		if (sliderMax > 0) panelY0 = Math.min(panelY0, sliderY - 12);
 		for (Button b : buttons) {
 			boolean over = b.enabled() && b.over(mouseX, mouseY);
 			int bg = !b.enabled() ? 0xFF1E1E24 : over ? lighten(b.color()) : b.color();
@@ -1143,6 +1175,136 @@ public final class PokerScreen extends Screen {
 		minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.2F));
 	}
 
+	// ------------------------------------------------------------------ first person
+
+	/** Between the camera over the table and first person with your cards in your hands. */
+	private void toggleView() {
+		PokerCamera.firstPerson = !PokerCamera.firstPerson;
+		if (PokerCamera.firstPerson) lookAtTable();
+		if (state != null) readWorld(state);
+		minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.BOOK_PAGE_TURN, 1.1F));
+	}
+
+	/** Turns you to look down at the middle of the table. */
+	private void lookAtTable() {
+		if (minecraft.player == null || tableCenter == null) return;
+		Vec3 eyes = minecraft.player.getEyePosition();
+		Vec3 d = tableCenter.subtract(eyes);
+		float yaw = (float) Math.toDegrees(Math.atan2(-d.x, d.z));
+		float pitch = (float) Math.toDegrees(Math.atan2(-d.y, Math.sqrt(d.x * d.x + d.z * d.z)));
+		minecraft.player.setYRot(yaw);
+		minecraft.player.setXRot(Mth.clamp(pitch, -90, 90));
+		minecraft.player.yRotO = yaw;
+		minecraft.player.xRotO = minecraft.player.getXRot();
+	}
+
+	/** Whether the mouse is over the held cards (the bottom middle of the screen). */
+	private boolean overHeld(double mx, double my) {
+		return Math.abs(mx - cx) < height * 0.3 && my > height * 0.5;
+	}
+
+	/** Your two cards in your hands, in 3D (PokerHands), with your name and hand under them. */
+	private void drawHeld(GuiGraphicsExtractor g, long now, int mouseX, int mouseY) {
+		float dt = lastHandsFrame == 0 ? 0 : Math.min(0.1F, (now - lastHandsFrame) / 1000F);
+		lastHandsFrame = now;
+		boolean over = overHeld(mouseX, mouseY);
+		fan += ((over || peeking ? 1 : 0.15F) - fan) * Math.min(1, dt * 9);
+		lift += ((peeking ? 1 : 0) - lift) * Math.min(1, dt * 8);
+		String[] cards = null;
+		if (dealt[you] || hole[you][0].a > 0.01F) cards = new String[] { hole[you][0].code, hole[you][1].code };
+		float swayX = Mth.clamp((mouseX - cx) / (float) Math.max(1, width / 2), -1, 1);
+		float swayY = Mth.clamp((mouseY - height * 0.7F) / (height * 0.3F), -1, 1);
+		var skin = minecraft.player == null ? null : minecraft.player.getSkin();
+		int y0 = Math.round(height * 0.28F);
+		g.guiRenderState.addPicturesInPictureState(new PokerHands.State(cards, fan, swayX, swayY, lift, skin, 0, y0, width, height, height * 1.05F));
+	}
+
+	// ------------------------------------------------------------------ hand rankings
+
+	/** The hands from best to worst: names and an example (cards in lower case are kickers, drawn dim). */
+	private static final String[][] HANDS = {
+			{ "Роял-флеш", "Royal flush", "AS KS QS JS TS" },
+			{ "Стрит-флеш", "Straight flush", "9H 8H 7H 6H 5H" },
+			{ "Каре", "Four of a kind", "QC QD QH QS 7d" },
+			{ "Фулл-хаус", "Full house", "KH KC KD 4S 4H" },
+			{ "Флеш", "Flush", "AD JD 8D 6D 2D" },
+			{ "Стрит", "Straight", "TC 9D 8S 7H 6C" },
+			{ "Сет", "Three of a kind", "7S 7H 7D kc 2s" },
+			{ "Две пары", "Two pair", "JH JS 5C 5D ah" },
+			{ "Пара", "Pair", "AS AH kc 9d 4s" },
+			{ "Старшая карта", "High card", "AC qd 9s 6h 3c" },
+	};
+
+	/** Which row of {@link #HANDS} the hand name the server sent (e.g. «пара тузов», «flush») is. */
+	private static int handRow(String hand) {
+		if (hand == null) return -1;
+		String h = hand.toLowerCase(java.util.Locale.ROOT);
+		String[][] starts = { { "роял", "royal" }, { "стрит-флеш", "straight flush" }, { "каре", "four" }, { "фулл", "full" },
+				{ "флеш", "flush" }, { "стрит", "straight" }, { "сет", "three" }, { "две пары", "two pair" }, { "пара", "pair" },
+				{ "старшая", " high" } };
+		for (int i = 0; i < starts.length; i++) {
+			if (h.startsWith(starts[i][0]) || (i == 9 ? h.endsWith(starts[i][1]) : h.startsWith(starts[i][1]))) return i;
+		}
+		return -1;
+	}
+
+	/** The «Комбинации» button under the title and, when open, the list of hands with yours lit up. */
+	private void drawHands(GuiGraphicsExtractor g, int mouseX, int mouseY) {
+		String label = Tr.s("Комбинации", "Hand rankings");
+		int bx1 = 6 + font.width(label) + 22;
+		button(6, 34, bx1, 48, label, showHands ? 0xFF6A5520 : 0xFF26262E, () -> showHands = !showHands, true, null);
+		Button b = buttons.get(buttons.size() - 1);
+		boolean over = b.over(mouseX, mouseY);
+		card(g, b.x0(), b.y0(), b.x1(), b.y1(), over ? lighten(b.color()) : b.color(), over ? 0xFFFFFFFF : 0x50FFFFFF);
+		g.text(font, Component.literal(label), b.x0() + 6, b.y0() + 3, 0xFFFFFFFF, false);
+		g.text(font, Component.literal("H"), b.x1() - 9, b.y0() + 3, 0x70FFFFFF, false);
+		if (world && you >= 0) {
+			String view = PokerCamera.firstPerson ? Tr.s("Вид сверху", "Top view") : Tr.s("От первого лица", "First person");
+			int vx0 = bx1 + 4;
+			int vx1 = vx0 + font.width(view) + 22;
+			button(vx0, 34, vx1, 48, view, 0xFF26262E, this::toggleView, true, null);
+			Button v = buttons.get(buttons.size() - 1);
+			boolean vo = v.over(mouseX, mouseY);
+			card(g, v.x0(), v.y0(), v.x1(), v.y1(), vo ? lighten(v.color()) : v.color(), vo ? 0xFFFFFFFF : 0x50FFFFFF);
+			g.text(font, Component.literal(view), v.x0() + 6, v.y0() + 3, 0xFFFFFFFF, false);
+			g.text(font, Component.literal("V"), v.x1() - 9, v.y0() + 3, 0x70FFFFFF, false);
+		}
+		if (!showHands) return;
+
+		JsonObject me = you >= 0 ? seat(you) : null;
+		int mine = me != null && me.has("hand") ? handRow(me.get("hand").getAsString()) : -1;
+		int rowH = 25;
+		int x0 = 6;
+		int y0 = 52;
+		int x1 = x0 + 232;
+		int y1 = y0 + 20 + HANDS.length * rowH + 4;
+		card(g, x0, y0, x1, y1, PANEL, GOLD);
+		g.text(font, Component.literal(Tr.s("От сильной к слабой", "Best to worst")).withStyle(st -> st.withBold(true)), x0 + 8, y0 + 7, 0xFFF5F5F5, false);
+		for (int row = 0; row < HANDS.length; row++) {
+			final int i = row;
+			int y = y0 + 20 + i * rowH;
+			if (i == mine) g.fill(x0 + 3, y, x1 - 3, y + rowH - 1, 0x40E0B040);
+			int color = i == mine ? GOLD : 0xFFE4E4E7;
+			g.text(font, Component.literal((i + 1) + "."), x0 + 8, y + 8, 0xFF8A8A95, false);
+			Component name = Component.literal(Tr.s(HANDS[i][0], HANDS[i][1])).withStyle(st -> st.withBold(i == mine));
+			g.text(font, name, x0 + 24, y + 8, color, false);
+			String[] cards = HANDS[i][2].split(" ");
+			for (int c = 0; c < cards.length; c++) {
+				boolean kicker = Character.isLowerCase(cards[c].charAt(cards[c].length() - 1));
+				int cx0 = x1 - 8 - (cards.length - c) * 16;
+				miniCard(g, texture(cards[c]), cx0, y + 1, kicker);
+			}
+		}
+	}
+
+	/** A small card for the rankings: 15×23, dim when it is only a kicker. */
+	private static void miniCard(GuiGraphicsExtractor g, Identifier tex, int x, int y, boolean dim) {
+		int w = 15;
+		int h = 23;
+		g.fill(x + 1, y + 1, x + w + 1, y + h + 1, 0x50000000);
+		g.blit(RenderPipelines.GUI_TEXTURED, tex, x, y, 0F, 0F, w, h, CW, CH, CW, CH, dim ? 0xFF6A6A6A : 0xFFFFFFFF);
+	}
+
 	// ------------------------------------------------------------------ input
 
 	@Override
@@ -1150,7 +1312,15 @@ public final class PokerScreen extends Screen {
 		double mx = event.x();
 		double my = event.y();
 		// Left is not 0 here: 26.3 numbers mouse buttons its own way (InputConstants).
-		if (event.button() != com.mojang.blaze3d.platform.InputConstants.MOUSE_BUTTON_LEFT) return super.mouseClicked(event, doubleClick);
+		boolean left = event.button() == com.mojang.blaze3d.platform.InputConstants.MOUSE_BUTTON_LEFT;
+		if (!left) {
+			// Right (or middle) button: drag anywhere to turn the camera around the table (or your head).
+			if (PokerCamera.wanted() || PokerCamera.holding) {
+				orbiting = true;
+				return true;
+			}
+			return super.mouseClicked(event, doubleClick);
+		}
 		for (Button b : buttons) {
 			if (b.enabled() && b.over(mx, my)) {
 				b.click().run();
@@ -1175,6 +1345,17 @@ public final class PokerScreen extends Screen {
 				}
 			}
 		}
+		if (PokerCamera.holding) {
+			if (overHeld(mx, my)) peeking = true;
+			else orbiting = true;
+			return true;
+		}
+		// The free part of the screen: drag to turn the camera, double-click to look from your seat again.
+		if (PokerCamera.wanted()) {
+			if (doubleClick) PokerCamera.resetView();
+			orbiting = true;
+			return true;
+		}
 		return super.mouseClicked(event, doubleClick);
 	}
 
@@ -1184,12 +1365,22 @@ public final class PokerScreen extends Screen {
 			slide(event.x());
 			return true;
 		}
+		if (orbiting) {
+			if (PokerCamera.holding) {
+				if (minecraft.player != null) minecraft.player.turn(dx * 2, dy * 2);
+			} else {
+				PokerCamera.orbit(dx, dy);
+			}
+			return true;
+		}
 		return super.mouseDragged(event, dx, dy);
 	}
 
 	@Override
 	public boolean mouseReleased(MouseButtonEvent event) {
 		dragging = false;
+		orbiting = false;
+		peeking = false;
 		return super.mouseReleased(event);
 	}
 
@@ -1206,6 +1397,11 @@ public final class PokerScreen extends Screen {
 	@Override
 	public boolean mouseScrolled(double x, double y, double scrollX, double scrollY) {
 		long big = Math.max(1, num(state, "big"));
+		// Over the table (not the action panel) the wheel zooms the camera.
+		if (PokerCamera.wanted() && !(x >= panelX0 && y >= panelY0)) {
+			PokerCamera.zoom(scrollY);
+			return true;
+		}
 		if (state.has("options") && sliderMax > 0) {
 			raiseTo = Mth.clamp(raiseTo + Math.round(Math.signum(scrollY)) * big, sliderMin, sliderMax);
 			return true;
@@ -1220,6 +1416,14 @@ public final class PokerScreen extends Screen {
 	@Override
 	public boolean keyPressed(KeyEvent event) {
 		int key = event.key();
+		if (key == com.mojang.blaze3d.platform.InputConstants.KEY_H) {
+			showHands = !showHands;
+			return true;
+		}
+		if (key == com.mojang.blaze3d.platform.InputConstants.KEY_V && world && you >= 0) {
+			toggleView();
+			return true;
+		}
 		if (state.has("options")) {
 			for (Button b : buttons) {
 				if (b.key() == null || !b.enabled()) continue;

@@ -40,7 +40,8 @@ public abstract class CameraMixin {
 		}
 		pro.minehouse.menu.poker.PokerCamera.Shot poker = pro.minehouse.menu.poker.PokerCamera.shot(entity, level, partialTicks);
 		if (poker != null) {
-			detached = true;
+			// Not detached while right over your seat: your own head is then not drawn in the way.
+			detached = pro.minehouse.menu.poker.PokerCamera.showsSelf();
 			setRotation(poker.yRot(), poker.xRot());
 			setPosition(poker.position());
 			return;
