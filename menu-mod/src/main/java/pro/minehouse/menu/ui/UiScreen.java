@@ -76,6 +76,15 @@ public final class UiScreen extends Screen implements Fitting {
 	private final Map<String, ItemStackRenderState> models = new HashMap<>();
 	private final Map<String, ItemStack> items = new HashMap<>();
 	private final Map<Node, Integer> grids = new IdentityHashMap<>();
+	/** Text fields by node id: what was typed survives updates until the server sends another value. */
+	private final Map<String, UiField> fields = new HashMap<>();
+	/** Sliders by node id, kept the same way. */
+	private final Map<String, UiSlider> sliders = new HashMap<>();
+	/** The slider being dragged (its node id), or null. */
+	private String sliding;
+	/** The field that takes the keyboard (its node id), or null. */
+	private String focused;
+	private boolean firstRead = true;
 
 	private float previewYaw = 20;
 	private boolean dragging;
@@ -105,6 +114,17 @@ public final class UiScreen extends Screen implements Fitting {
 
 	String id() {
 		return id;
+	}
+
+	/** Self-test: what is in a field, or where a slider stands. */
+	String fieldText(String field) {
+		UiField f = fields.get(field);
+		return f == null ? null : f.text;
+	}
+
+	String sliderText(String slider) {
+		UiSlider sl = sliders.get(slider);
+		return sl == null ? null : sl.text();
 	}
 
 	void update(JsonObject json) {
@@ -141,6 +161,7 @@ public final class UiScreen extends Screen implements Fitting {
 				hints.add(new String[] {e.getAsJsonArray().get(0).getAsString(), e.getAsJsonArray().get(1).getAsString()});
 			}
 		}
+		readFields();
 		wheel = "wheel".equals(scene) && json.has("wheel") && json.get("wheel").isJsonObject() ? new UiWheel(json.getAsJsonObject("wheel")) : null;
 		if (wheel != null && wheelGrow.length != wheel.slots.size()) wheelGrow = new float[wheel.slots.size()];
 		JsonObject preview = json.has("preview") && json.get("preview").isJsonObject() ? json.getAsJsonObject("preview") : null;
@@ -152,6 +173,62 @@ public final class UiScreen extends Screen implements Fitting {
 				preview.getAsJsonObject("tint").entrySet().forEach(en -> tint.put(en.getKey(), en.getValue().getAsInt()));
 			}
 		}
+	}
+
+	/** Picks up the text fields: new ones, and ones the server gave another value. */
+	private void readFields() {
+		Map<String, UiField> seen = new HashMap<>();
+		Map<String, UiSlider> seenSliders = new HashMap<>();
+		for (Panel p : panels) collectFields(p.node(), seen, seenSliders);
+		sliders.keySet().retainAll(seenSliders.keySet());
+		for (Map.Entry<String, UiSlider> e : seenSliders.entrySet()) {
+			UiSlider now = e.getValue();
+			UiSlider was = sliders.get(e.getKey());
+			// Being dragged, it stays under the mouse whatever the server says.
+			if (was == null || (!e.getKey().equals(sliding) && (was.server != now.server || was.min != now.min || was.max != now.max || was.step != now.step))) {
+				sliders.put(e.getKey(), now);
+			}
+		}
+		if (sliding != null && !sliders.containsKey(sliding)) sliding = null;
+		fields.keySet().retainAll(seen.keySet());
+		for (Map.Entry<String, UiField> e : seen.entrySet()) {
+			UiField now = e.getValue();
+			UiField was = fields.get(e.getKey());
+			if (was == null || !was.server.equals(now.server)) fields.put(e.getKey(), now);
+			else was.max = now.max;
+		}
+		if (focused != null && !fields.containsKey(focused)) focused = null;
+		if (firstRead) {
+			for (Panel p : panels) {
+				Node f = firstFocus(p.node());
+				if (f != null && focused == null) focused = f.id;
+			}
+		}
+		firstRead = false;
+	}
+
+	private static void collectFields(Node n, Map<String, UiField> out, Map<String, UiSlider> outSliders) {
+		if (n.type.equals("input") && n.id != null) {
+			out.put(n.id, new UiField(n.str("value", ""), n.num("max", 32), "digits".equals(n.str("chars"))));
+		}
+		if (n.type.equals("slider") && n.id != null) {
+			outSliders.put(n.id, new UiSlider(dbl(n, "min", 0), dbl(n, "max", 1), dbl(n, "step", 0), dbl(n, "value", dbl(n, "min", 0))));
+		}
+		for (Node c : n.children) collectFields(c, out, outSliders);
+	}
+
+	private static double dbl(Node n, String key, double fallback) {
+		JsonElement e = n.json.get(key);
+		return e != null && e.isJsonPrimitive() && e.getAsJsonPrimitive().isNumber() ? e.getAsDouble() : fallback;
+	}
+
+	private static Node firstFocus(Node n) {
+		if (n.type.equals("input") && n.id != null && n.flag("focus") && !n.flag("disabled")) return n;
+		for (Node c : n.children) {
+			Node f = firstFocus(c);
+			if (f != null) return f;
+		}
+		return null;
 	}
 
 	private static JsonArray array(JsonObject o, String key) {
@@ -447,6 +524,8 @@ public final class UiScreen extends Screen implements Fitting {
 			}
 			case "text" -> text(g, n);
 			case "button" -> button(g, n, hover);
+			case "input" -> input(g, n, hover);
+			case "slider" -> slider(g, n, hover);
 			case "tabs" -> {
 				tabs(g, n, mx, my);
 				return; // the tabs draw their icons themselves
@@ -587,6 +666,87 @@ public final class UiScreen extends Screen implements Fitting {
 		int y = n.y + (n.h - 8) / 2;
 		g.text(font, label, x, y, fg, false);
 		if (n.flag("coin")) coin(g, x + font.width(label) + UiTree.COIN_GAP, y - 1);
+	}
+
+	/** A text field: a dark box, the text (or the grey placeholder) and a blinking caret while it has the keyboard. */
+	private void input(GuiGraphicsExtractor g, Node n, boolean hover) {
+		UiField f = n.id == null ? null : fields.get(n.id);
+		boolean on = f != null && !n.flag("disabled");
+		boolean focus = on && n.id.equals(focused);
+		card(g, n.x, n.y, n.x + n.w, n.y + n.h, Theme.MUTED_BG, focus ? Theme.ACCENT : hover && on ? Theme.FAINT : Theme.BORDER);
+		int x0 = n.x + 5;
+		int room = n.w - 10;
+		int ty = n.y + (n.h - 8) / 2;
+		if (f == null || f.text.isEmpty()) {
+			String ph = n.str("placeholder");
+			if (ph != null) {
+				String shown = font.plainSubstrByWidth(ph, room);
+				g.text(font, Component.literal(shown), x0, ty, Theme.FAINT, false);
+			}
+			if (focus && caretOn()) g.fill(x0, ty - 1, x0 + 1, ty + 9, Theme.FG);
+			return;
+		}
+		// Scroll so the caret stays in the box.
+		f.scrollTo(room, s -> font.width(s));
+		String shown = font.plainSubstrByWidth(f.text.substring(f.scroll), room);
+		g.enableScissor(n.x + 1, n.y + 1, n.x + n.w - 1, n.y + n.h - 1);
+		g.text(font, Component.literal(shown), x0, ty, on ? Theme.FG : Theme.DISABLED, false);
+		if (focus && caretOn()) {
+			int cx = x0 + font.width(f.text.substring(f.scroll, f.cursor));
+			g.fill(cx, ty - 1, cx + 1, ty + 9, Theme.FG);
+		}
+		g.disableScissor();
+	}
+
+	/** A slider: the track filled up to the thumb, "label: value" in the middle. */
+	private void slider(GuiGraphicsExtractor g, Node n, boolean hover) {
+		UiSlider sl = n.id == null ? null : sliders.get(n.id);
+		boolean on = sl != null && !n.flag("disabled");
+		boolean active = on && n.id.equals(sliding);
+		card(g, n.x, n.y, n.x + n.w, n.y + n.h, Theme.MUTED_BG, active ? Theme.ACCENT : hover && on ? Theme.FAINT : Theme.BORDER);
+		if (sl == null) return;
+		int x0 = n.x + 3;
+		int x1 = n.x + n.w - 3;
+		int tx = x0 + (int) Math.round((x1 - x0 - 4) * sl.fraction());
+		if (tx > x0) g.fill(x0, n.y + 3, tx + 2, n.y + n.h - 3, on ? (Theme.ACCENT & 0xFFFFFF) | 0x50000000 : 0x3052525B);
+		g.fill(tx, n.y + 2, tx + 4, n.y + n.h - 2, !on ? Theme.DISABLED : active || hover ? Theme.FG : 0xFFD4D4D8);
+		String label = n.str("label");
+		String text = (label == null || label.isEmpty() ? "" : label + ": ") + sl.text() + n.str("unit", "");
+		Component c = Component.literal(font.plainSubstrByWidth(text, n.w - 8));
+		g.text(font, c, n.x + (n.w - font.width(c)) / 2, n.y + (n.h - 8) / 2, on ? Theme.FG : Theme.DISABLED, true);
+	}
+
+	/** The slider's node in the current layout, by id. */
+	private Node sliderNode(String id) {
+		for (Panel p : panels) {
+			Node n = byType(p.node(), "slider", id);
+			if (n != null) return n;
+		}
+		return null;
+	}
+
+	private static Node byType(Node n, String type, String id) {
+		if (n.type.equals(type) && id.equals(n.id)) return n;
+		for (Node c : n.children) {
+			Node f = byType(c, type, id);
+			if (f != null) return f;
+		}
+		return null;
+	}
+
+	private void slideTo(Node n, double mx) {
+		UiSlider sl = sliders.get(n.id);
+		if (sl == null) return;
+		int x0 = n.x + 3;
+		int x1 = n.x + n.w - 3;
+		if (sl.setFraction((mx - x0 - 2) / Math.max(1, x1 - x0 - 4))) {
+			minecraft.getSoundManager().play(net.minecraft.client.resources.sounds.SimpleSoundInstance.forUI(
+					net.minecraft.sounds.SoundEvents.UI_BUTTON_CLICK.value(), 2.0F, 0.08F));
+		}
+	}
+
+	private static boolean caretOn() {
+		return System.currentTimeMillis() / 500 % 2 == 0;
 	}
 
 	private void tabs(GuiGraphicsExtractor g, Node n, int mx, int my) {
@@ -900,8 +1060,76 @@ public final class UiScreen extends Screen implements Fitting {
 		return true;
 	}
 
+	/** The node of the focused field in the current layout (for its submit click). */
+	private Node focusedNode() {
+		if (focused == null) return null;
+		for (Panel p : panels) {
+			Node n = byId(p.node(), focused);
+			if (n != null) return n;
+		}
+		return null;
+	}
+
+	private static Node byId(Node n, String id) {
+		if (n.type.equals("input") && id.equals(n.id)) return n;
+		for (Node c : n.children) {
+			Node f = byId(c, id);
+			if (f != null) return f;
+		}
+		return null;
+	}
+
+	@Override
+	public boolean charTyped(net.minecraft.client.input.CharacterEvent event) {
+		UiField f = focused == null ? null : fields.get(focused);
+		if (f != null && wheel == null) {
+			if (event.isAllowedChatCharacter()) f.insert(event.codepointAsString());
+			return true;
+		}
+		return super.charTyped(event);
+	}
+
 	@Override
 	public boolean keyPressed(net.minecraft.client.input.KeyEvent event) {
+		UiField f = focused == null || wheel != null ? null : fields.get(focused);
+		if (f != null && !event.isEscape()) {
+			int key = event.key();
+			boolean word = event.hasControlDown();
+			if (event.isConfirmation()) {
+				Node n = focusedNode();
+				JsonObject submit = n == null || n.flag("disabled") ? null : n.obj("submit");
+				if (submit != null) send(submit);
+			} else if (event.isPaste()) {
+				f.insert(minecraft.keyboardHandler.getClipboard());
+			} else if (event.isCopy()) {
+				minecraft.keyboardHandler.setClipboard(f.text);
+			} else if (event.isCut()) {
+				minecraft.keyboardHandler.setClipboard(f.text);
+				f.clear();
+			} else if (event.isSelectAll()) {
+				f.end();
+			} else if (key == com.mojang.blaze3d.platform.InputConstants.KEY_BACKSPACE) {
+				f.backspace(word);
+			} else if (key == com.mojang.blaze3d.platform.InputConstants.KEY_DELETE) {
+				f.delete(word);
+			} else if (event.isLeft()) {
+				f.left(word);
+			} else if (event.isRight()) {
+				f.right(word);
+			} else if (key == com.mojang.blaze3d.platform.InputConstants.KEY_HOME) {
+				f.home();
+			} else if (key == com.mojang.blaze3d.platform.InputConstants.KEY_END) {
+				f.end();
+			} else if (event.isCycleFocus()) {
+				cycleFocus(event.hasShiftDown());
+			}
+			// Typing doesn't reach the game's keys (inventory, chat, ...).
+			return true;
+		}
+		if (f == null && wheel == null && event.isCycleFocus() && !fields.isEmpty()) {
+			cycleFocus(event.hasShiftDown());
+			return true;
+		}
 		if (wheel != null) {
 			int key = event.key();
 			if (key >= com.mojang.blaze3d.platform.InputConstants.KEY_1 && key <= com.mojang.blaze3d.platform.InputConstants.KEY_9) {
@@ -914,6 +1142,22 @@ public final class UiScreen extends Screen implements Fitting {
 			}
 		}
 		return super.keyPressed(event);
+	}
+
+	/** Tab: the next field (in the order they are in the window). */
+	private void cycleFocus(boolean back) {
+		List<String> order = new ArrayList<>();
+		for (Panel p : panels) fieldOrder(p.node(), order);
+		if (order.isEmpty()) return;
+		int i = focused == null ? -1 : order.indexOf(focused);
+		i = back ? (i <= 0 ? order.size() - 1 : i - 1) : (i + 1) % order.size();
+		focused = order.get(i);
+		fields.get(focused).end();
+	}
+
+	private void fieldOrder(Node n, List<String> out) {
+		if (n.type.equals("input") && n.id != null && fields.containsKey(n.id) && !n.flag("disabled")) out.add(n.id);
+		for (Node c : n.children) fieldOrder(c, out);
 	}
 
 	// ------------------------------------------------------------------ input
@@ -968,6 +1212,12 @@ public final class UiScreen extends Screen implements Fitting {
 		msg.addProperty("window", id);
 		msg.addProperty("rev", rev);
 		msg.add("click", click);
+		if (!fields.isEmpty() || !sliders.isEmpty()) {
+			JsonObject inputs = new JsonObject();
+			fields.forEach((k, f) -> inputs.addProperty(k, f.text));
+			sliders.forEach((k, sl) -> inputs.addProperty(k, sl.text()));
+			msg.add("inputs", inputs);
+		}
 		UiNet.send(msg);
 	}
 
@@ -1006,6 +1256,20 @@ public final class UiScreen extends Screen implements Fitting {
 			dragScroll(bar, my);
 			return true;
 		}
+		Node field = find(mx, my, n -> n.type.equals("input") && n.id != null && fields.containsKey(n.id) && !n.flag("disabled"));
+		if (field != null) {
+			focused = field.id;
+			UiField f = fields.get(field.id);
+			f.clickAt(mx - (field.x + 5), s -> font.width(s));
+			return true;
+		}
+		focused = null;
+		Node slider = find(mx, my, n -> n.type.equals("slider") && n.id != null && sliders.containsKey(n.id) && !n.flag("disabled"));
+		if (slider != null) {
+			sliding = slider.id;
+			slideTo(slider, mx);
+			return true;
+		}
 		Node hit = find(mx, my, n -> n.click() != null || n.dbl() != null);
 		if (hit != null) {
 			if (hit.click() != null) send(hit.click());
@@ -1022,6 +1286,11 @@ public final class UiScreen extends Screen implements Fitting {
 
 	@Override
 	public boolean mouseDragged(MouseButtonEvent event, double dx, double dy) {
+		if (sliding != null) {
+			Node n = sliderNode(sliding);
+			if (n != null) slideTo(n, event.x());
+			return true;
+		}
 		if (scrollDrag != null) {
 			// The layout is rebuilt every frame: find the same grid again by its id.
 			for (Node grid : grids.keySet()) {
@@ -1053,6 +1322,15 @@ public final class UiScreen extends Screen implements Fitting {
 		}
 		dragging = false;
 		scrollDrag = null;
+		if (sliding != null) {
+			Node n = sliderNode(sliding);
+			UiSlider sl = sliders.get(sliding);
+			sliding = null;
+			JsonObject change = n == null || n.flag("disabled") ? null : n.obj("change");
+			// Only if it moved from where the server put it (else a click on it would send the same again).
+			if (change != null && sl != null && sl.value != sl.server) send(change);
+			return true;
+		}
 		return super.mouseReleased(event);
 	}
 

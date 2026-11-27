@@ -76,6 +76,17 @@ public final class UiNet {
 		}
 	}
 
+	/** Registered only to tell the server this client draws text fields (node "input", client 1.49.0+). */
+	public record InputFeature() implements CustomPacketPayload {
+		static final Type<InputFeature> TYPE = new Type<>(Identifier.fromNamespaceAndPath(NS, "input"));
+		static final StreamCodec<FriendlyByteBuf, InputFeature> CODEC = StreamCodec.unit(new InputFeature());
+
+		@Override
+		public Type<InputFeature> type() {
+			return TYPE;
+		}
+	}
+
 	private UiNet() {
 	}
 
@@ -88,6 +99,9 @@ public final class UiNet {
 		});
 		PayloadTypeRegistry.clientboundPlay().register(ExplainerFeature.TYPE, ExplainerFeature.CODEC);
 		ClientPlayNetworking.registerGlobalReceiver(ExplainerFeature.TYPE, (payload, context) -> {
+		});
+		PayloadTypeRegistry.clientboundPlay().register(InputFeature.TYPE, InputFeature.CODEC);
+		ClientPlayNetworking.registerGlobalReceiver(InputFeature.TYPE, (payload, context) -> {
 		});
 		net.fabricmc.fabric.api.client.rendering.v1.PictureInPictureRendererRegistry.register(context -> new pro.minehouse.menu.explainer.ExplainerRenderer());
 		ClientPlayNetworking.registerGlobalReceiver(WindowPayload.TYPE, (payload, context) -> receive(context.client(), payload.json()));

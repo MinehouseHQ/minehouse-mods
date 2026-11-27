@@ -13,7 +13,7 @@ import pro.minehouse.menu.MinehouseMenu;
  * CI check (xvfb-run ./gradlew runSelftestClient -Pselftest=ui): feeds the client a made-up server
  * window (selftest/ui-window.json, the wardrobe's layout with vanilla models), screenshots it, sends
  * an update and a close, then the server and player menus (selftest/ui-menu.json, ui-player.json,
- * screenshots ui-menu.png, ui-player.png), the player wheel (ui-wheel.png), and prints MINEHOUSE_UI_OK if the windows held together.
+ * screenshots ui-menu.png, ui-player.png), a text field and a slider (ui-input.png), the player wheel (ui-wheel.png), and prints MINEHOUSE_UI_OK if the windows held together.
  */
 final class UiSelfTest {
 	private static int ticks;
@@ -57,6 +57,20 @@ final class UiSelfTest {
 					check(client.gui.screen() instanceof UiScreen s && s.id().equals("selftest_player"), "a window replaces another");
 				} else if (ticks == 140) {
 					Screenshot.grab(client.gameDirectory, "ui-player.png", client.gameRenderer.mainRenderTarget(), 1,
+							msg -> MinehouseMenu.LOG.info("Screenshot: {}", msg.getString()));
+				} else if (ticks == 141) {
+					// A text field and a slider (client 1.49.0): the field with "focus" takes the keyboard.
+					UiNet.receive(client, resource("ui-input.json"));
+					if (client.gui.screen() instanceof UiScreen s) {
+						s.charTyped(new net.minecraft.client.input.CharacterEvent('5'));
+						s.charTyped(new net.minecraft.client.input.CharacterEvent('x'));
+						check("125".equals(s.fieldText("amount")), "typing goes into the focused field, digits only");
+						check("1".equals(s.sliderText("scale")), "the slider stands where the server put it");
+					} else {
+						check(false, "the window with a field opens");
+					}
+				} else if (ticks == 148) {
+					Screenshot.grab(client.gameDirectory, "ui-input.png", client.gameRenderer.mainRenderTarget(), 1,
 							msg -> MinehouseMenu.LOG.info("Screenshot: {}", msg.getString()));
 				} else if (ticks == 150) {
 					// The player wheel (MineHouse Guides WheelUi), with the mouse on the right-hand tile.

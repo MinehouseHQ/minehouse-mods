@@ -15,6 +15,7 @@ import com.google.gson.JsonObject;
 public final class UiTree {
 	public static final int LINE = 10;
 	public static final int BUTTON_H = 18;
+	public static final int INPUT_W = 100;
 	public static final int TABS_H = 22;
 	public static final int TAB_ICON_W = 18;
 	public static final int COIN = 8;
@@ -106,7 +107,7 @@ public final class UiTree {
 		/** Takes the width of its column (else its own width). */
 		boolean fills() {
 			return switch (type) {
-				case "col", "card", "row", "tabs", "divider", "text", "model", "explainer" -> true;
+				case "col", "card", "row", "tabs", "divider", "text", "model", "explainer", "input", "slider" -> true;
 				default -> false;
 			};
 		}
@@ -136,6 +137,7 @@ public final class UiTree {
 			case "item" -> 16;
 			case "swatch" -> 12;
 			case "model" -> 32;
+			case "input", "slider" -> INPUT_W;
 			case "image", "space", "divider", "tabs", "explainer" -> 0;
 			case "grid" -> gridWidth(n);
 			case "row" -> {
@@ -186,6 +188,7 @@ public final class UiTree {
 				yield Math.max(1, n.lines.size()) * LINE - 1;
 			}
 			case "button" -> n.str("style", "primary").equals("link") ? LINE + 2 : BUTTON_H;
+			case "input", "slider" -> BUTTON_H;
 			case "item" -> 16;
 			case "swatch" -> 12;
 			case "model" -> 32;
