@@ -17,9 +17,9 @@ import net.minecraft.world.phys.Vec3;
 /**
  * The End opening's beam as this mod draws it (Timur 28.11: «луч шейдером… возможно даже в скайбоксе», then
  * «с клиентским модом сделай»). The server only says where it stands ({@link LimboPayloads.Beam}); here it is
- * a column of light from the portal up past the sky: a white-hot core, a cyan body, a violet haze that swells
- * at the foot, light running up it and two strands twisting round it, all added onto what is behind (the
- * translucent debug-quads pipeline), turned to the eye like a cylinder would look.
+ * a column of light from the portal up past the sky, round and with depth: a white-hot core, a cyan body and a
+ * violet haze as three tubes of light one inside the other, light running up it and two strands winding round
+ * it, blended over what is behind (the translucent debug-quads pipeline, no depth written).
  *
  * <p>Like the sky, it is never out of reach: every vertex further than {@link #reach} is pulled in along its
  * ray to that distance, so it sits on the screen where it really is, is not eaten by the fog, and anything
@@ -119,21 +119,30 @@ public final class LimboBeams {
 		return x * x * (3 - 2 * x);
 	}
 
-	/** Columns across the beam, -1..1, denser in the middle where the core is thin. */
-	private static final float[] ACROSS = new float[41];
-	/** Heights above the foot: every 3 blocks low down, every 12 above. */
+	/** Points round each tube. */
+	private static final int AROUND = 28;
+	private static final float[] COS = new float[AROUND + 1], SIN = new float[AROUND + 1];
+	/** Heights above the foot: every 3 blocks low down, every 10 above. */
 	private static final float[] UP;
 
+	/*
+	 * The three tubes, outside in (drawn in that order): radius as a share of the half-width, strength, colour.
+	 * Haze violet, body cyan, core nearly white, as item.fsh mhBeam has them across its strip.
+	 */
+	private static final float[] RADIUS = {0.78f, 0.3f, 0.1f};
+	private static final float[][] COLOUR = {{0.62f, 0.38f, 1f}, {0.55f, 0.93f, 1f}, {0.9f, 0.98f, 1f}};
+
 	static {
-		for (int i = 0; i < ACROSS.length; i++) {
-			float t = i / (ACROSS.length - 1f) * 2 - 1;
-			ACROSS[i] = Math.signum(t) * (0.35f * Math.abs(t) + 0.65f * t * t);
+		for (int i = 0; i <= AROUND; i++) {
+			double t = i * Math.PI * 2 / AROUND;
+			COS[i] = (float) Math.cos(t);
+			SIN[i] = (float) Math.sin(t);
 		}
 		java.util.List<Float> up = new java.util.ArrayList<>();
-		for (float h = 0; h < 600; h += 3) {
+		for (float h = 0; h < 300; h += 3) {
 			up.add(h);
 		}
-		for (float h = 600; h <= HEIGHT; h += 12) {
+		for (float h = 300; h <= HEIGHT; h += 10) {
 			up.add(h);
 		}
 		UP = new float[up.size()];
@@ -143,65 +152,89 @@ public final class LimboBeams {
 	}
 
 	/*
-	 * The look is the vanilla one, the End mod's item.fsh mhBeam (Timur 28.11: «в ваниле луч лучше выглядит»):
-	 * the same formula, worked out per vertex on a fine grid instead of per pixel, on one strip turned to the eye.
-	 * x is across (-1..1), v down from the top (0..1) of a 2400-high sheet, as there.
+	 * A real volume of light round the axis (Timur 28.11: «сделай луч объемным… в клиентском моде»), not a strip
+	 * turned to the eye: three tubes one inside the other, each glowing as much as the eye's ray runs through it.
+	 * A ray through a round column at side offset s crosses 2·sqrt(R²−s²) of it, which on the tube's surface is
+	 * the share of it that faces the eye, and the steeper the eye looks up or down the longer the ray stays
+	 * inside, so alpha = 1 − exp(−strength · facing / horizontal share of the ray). Seen from the side that is the
+	 * same soft column as before; from below or above, near the foot, it is a round shaft going away into the sky.
+	 * Light runs up the body, two strands wind round it, the haze breathes, as in mhBeam. The tubes write no depth
+	 * (debug quads), so the inner ones show through the outer.
 	 */
 	private static void draw(PoseStack.Pose p, VertexConsumer vc, State s, Vec3 cam, float time, float reach) {
 		LimboPayloads.Beam b = s.beam;
 		double ax = b.x() - cam.x, az = b.z() - cam.z;
 		double hd = Math.max(1e-3, Math.sqrt(ax * ax + az * az));
-		// across the beam, as the eye sees it
-		float sx = (float) (-az / hd), sz = (float) (ax / hd);
 		float g = ease(s.grow);
 		float half = (float) Math.max(b.width() * 0.5f, MIN_ANGLE * hd) * g;
 		double foot = b.y() - cam.y;
-		int n = ACROSS.length;
-		float[] prev = null;
 		float pulse = (float) (0.82 + 0.18 * Math.sin(time * 5.0) * Math.sin(time * 1.7 + 1.0));
-		for (float up : UP) {
-			float v = 1 - up / HEIGHT;
-			float fade = 1;
-			// row: x y z r g b a per column
-			float[] row = new float[n * 7];
-			for (int c = 0; c < n; c++) {
-				float x = ACROSS[c];
-				int o = c * 7;
-				put(row, o, ax + sx * x * half, foot + up, az + sz * x * half, reach);
-				shade(row, o + 3, x, Math.max(v, 0), time, pulse, g * fade);
+		int n = AROUND + 1;
+		// far off it is only a few pixels across: the haze and the body carry it, so they glow harder
+		float far = ease((float) ((hd - 100) / 300));
+		for (int layer = 0; layer < RADIUS.length; layer++) {
+			float r = RADIUS[layer] * half;
+			// standing inside a tube, its walls would only fog the view: let it go as the eye comes in
+			float inside = ease((float) ((hd - r) / (r * 1.5)));
+			if (inside <= 0.002f) {
+				continue;
 			}
-			if (prev != null) {
-				for (int c = 0; c + 1 < n; c++) {
-					vertex(p, vc, prev, c);
-					vertex(p, vc, prev, c + 1);
-					vertex(p, vc, row, c + 1);
-					vertex(p, vc, row, c);
+			float[] prev = null;
+			for (float up : UP) {
+				double y = foot + up;
+				// the axis wanders a little, as mhBeam's wob
+				double wx = half * (0.03 * Math.sin(up * 0.13 - time * 3.0) + 0.02 * Math.sin(up * 0.34 + time * 5.0));
+				double wz = half * (0.03 * Math.cos(up * 0.11 - time * 2.6) + 0.02 * Math.sin(up * 0.29 - time * 4.3));
+				float top = ease((1 - up / HEIGHT) / 0.06f);
+				float[] row = new float[n * 7];
+				for (int c = 0; c < n; c++) {
+					double px = ax + wx + COS[c] * r, pz = az + wz + SIN[c] * r;
+					double h = Math.sqrt(px * px + pz * pz);
+					double l = Math.sqrt(h * h + y * y);
+					double facing = h < 1e-4 ? 1 : Math.abs(COS[c] * px + SIN[c] * pz) / h;
+					double through = facing / Math.max(h / Math.max(l, 1e-4), 0.35);
+					int o = c * 7;
+					put(row, o, px, y, pz, reach);
+					shade(row, o + 3, layer, c, up, through, time, pulse, far, g * top * inside);
 				}
+				if (prev != null) {
+					for (int c = 0; c + 1 < n; c++) {
+						vertex(p, vc, prev, c);
+						vertex(p, vc, prev, c + 1);
+						vertex(p, vc, row, c + 1);
+						vertex(p, vc, row, c);
+					}
+				}
+				prev = row;
 			}
-			prev = row;
 		}
 	}
 
-	/** item.fsh mhBeam: colour and alpha at x across, v down. */
-	private static void shade(float[] out, int at, float x, float v, float time, float pulse, float k) {
-		float ax = Math.abs(x);
-		double h = v * 900.0;
-		double wob = 0.03 * Math.sin(h * 0.35 - time * 3.0) + 0.02 * Math.sin(h * 0.9 + time * 5.0);
-		double xc = Math.abs(x - wob);
-		double core = Math.exp(-xc * xc * 110.0);
-		double body = Math.exp(-xc * xc * 16.0);
-		double haze = Math.exp(-ax * ax * 3.5) * (1.0 - ax);
-		double run = Math.pow(0.5 + 0.5 * Math.sin(h * 1.3 - time * 16.0 + 2.0 * Math.sin(x * 5.0 + time * 0.7)), 5.0);
-		double twist = Math.pow(0.5 + 0.5 * Math.sin(x * 11.0 - h * 0.45 + time * 7.0), 10.0) * body;
-		double a = core * 1.4 + body * 0.6 * pulse + haze * 0.3 * pulse + run * body * 0.55 + twist * 0.45;
-		a *= ease(v / 0.06f);
-		a = Math.min(1, Math.max(0, a)) * k;
-		double r = 0.62 + (0.55 - 0.62) * body, gr = 0.38 + (0.93 - 0.38) * body, bl = 1.0;
-		double w = Math.min(1, Math.max(0, core * 1.6 + run * body * 0.5 + twist * 0.3));
-		out[at] = (float) (r + (1 - r) * w);
-		out[at + 1] = (float) (gr + (1 - gr) * w);
-		out[at + 2] = (float) (bl + (1 - bl) * w);
-		out[at + 3] = (float) a;
+	/** Colour and alpha of one tube's point c round, up blocks above the foot, a ray through it of that much. */
+	private static void shade(float[] out, int at, int layer, int c, float up, double through, float time,
+			float pulse, float far, float k) {
+		double angle = c * Math.PI * 2 / AROUND;
+		double strength, white;
+		if (layer == 0) {
+			strength = (0.22 + far * 0.1) * pulse;
+			white = 0;
+		} else if (layer == 1) {
+			// light running up, a band every ~13 blocks; two strands winding round, a turn every ~37
+			double run = Math.pow(0.5 + 0.5 * Math.sin(up * 0.49 - time * 16.0 + 2.0 * Math.sin(angle + time * 0.7)), 5.0);
+			double twist = Math.pow(0.5 + 0.5 * Math.sin(angle * 2 - up * 0.17 + time * 7.0), 10.0);
+			strength = (0.4 + far * 1.4) * pulse + run * 0.5 + twist * 0.7;
+			white = Math.min(1, run * 0.5 + twist * 0.45);
+		} else {
+			strength = 1.5 + far * 2.5;
+			white = 0.7;
+		}
+		// each tube is seen twice along the ray, its near and its far wall: half each
+		double a = (1 - Math.exp(-strength * 0.5 * through)) * k;
+		float[] col = COLOUR[layer];
+		out[at] = (float) (col[0] + (1 - col[0]) * white);
+		out[at + 1] = (float) (col[1] + (1 - col[1]) * white);
+		out[at + 2] = (float) (col[2] + (1 - col[2]) * white);
+		out[at + 3] = (float) Math.min(1, Math.max(0, a));
 	}
 
 	private static void put(float[] row, int at, double x, double y, double z, float reach) {
