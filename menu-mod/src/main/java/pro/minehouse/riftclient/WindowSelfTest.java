@@ -18,7 +18,7 @@ import net.minecraft.world.level.block.Blocks;
  *
  * <ul>
  * <li>{@link #check()}, in the rift self-test: the codec, that a room is read back into faces, and
- * that the cut keeps what is seen through the oval and drops what is not.</li>
+ * that the rift breaks into its pieces and the cut sees through them.</li>
  * <li>-Pselftest=window -Pjoin=localhost:25565 with a local End server (end-mod runWindowDemo):
  * a screenshot every two seconds (window-N.png) while that server walks the player round a rift
  * and through it.</li>
@@ -74,14 +74,26 @@ final class WindowSelfTest {
 		if (w.solid.size() != 8 + 12 + 9 + 5) {
 			return "faces " + w.solid.size();
 		}
-		// Seen from 4 blocks in front: the glowstone (straight behind the window) is kept, a face far off to the side is not.
-		PortalWindows.Cut cut = PortalWindows.Cut.of(w, new net.minecraft.world.phys.Vec3(0.5, 65.6, -3.5), 1f);
-		if (cut == null || cut.d0 < 3.9f || cut.d0 > 4.1f) {
-			return "cut plane";
+		// The glass: three panes and the slivers, every piece out once it has opened, seen from 4 blocks in front.
+		if (w.shards.size() < 25) {
+			return "shards " + w.shards.size();
+		}
+		ShardCut cut = new ShardCut(w.shards, 0, 0, 4, 2.2f, 1f, 0, true);
+		int out = 0, edgeOn = 0;
+		for (int i = 0; i < cut.count; i++) {
+			out += cut.shown[i] ? 1 : 0;
+			edgeOn += cut.shown[i] && cut.sides[i] == null ? 1 : 0;
+		}
+		if (!cut.through || cut.d0 < 3.9f || cut.d0 > 4.1f || out != w.shards.size() || edgeOn > out / 3) {
+			return "shard cut " + out + "/" + w.shards.size() + ", edge-on " + edgeOn;
+		}
+		// From inside the middle nothing is seen through it.
+		if (new ShardCut(w.shards, 0, 0, 0.1f, 2.2f, 1f, 0, true).through) {
+			return "shard cut from inside";
 		}
 		float[] in = { 0, 0, 1, 0, 0, 0.2f, 0, 1, 0, 0, 0.2f, 0.2f, 1, 0, 0 };
-		float[] out = new float[64];
-		if (PortalWindows.Cut.clip(in, 3, out, 0, 0, 1, 0.5f) != 3 || PortalWindows.Cut.clip(in, 3, out, 0, 0, 1, 2f) != 0) {
+		float[] tmp = new float[64];
+		if (ShardCut.clip(in, 3, tmp, 0, 0, 1, 0.5f) != 3 || ShardCut.clip(in, 3, tmp, 0, 0, 1, 2f) != 0) {
 			return "clip";
 		}
 		return null;

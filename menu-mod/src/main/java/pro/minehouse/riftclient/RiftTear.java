@@ -69,7 +69,8 @@ public final class RiftTear {
 		Vec3 eye = mc.gameRenderer.mainCamera().position();
 		List<Tear> found = new ArrayList<>();
 		for (Entity e : mc.level.entitiesForRendering()) {
-			if (!picture(e) || e.position().distanceToSqr(eye) > RANGE * RANGE) {
+			// Outside the mode's own looks the picture is drawn as broken glass now (PortalWindows).
+			if (!picture(e) || e.position().distanceToSqr(eye) > RANGE * RANGE || PortalWindows.drawsRiftPictures()) {
 				continue;
 			}
 			float side = ((Display) e).getHeight();
