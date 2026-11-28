@@ -56,8 +56,10 @@ import net.minecraft.world.phys.Vec3;
  * a projective map (planes stay planes, every point stays where it is on the screen). So the room
  * keeps its own order in depth, things in front of the window still hide it, and the world behind
  * the window (a hill, a wall) does not show through it;</li>
- * <li>a dark oval at the back of the slab is what is seen where the room has nothing, and a rim
- * round it stands in for the picture's.</li>
+ * <li>a dark oval at the back of the slab is what is seen where the room has nothing; the rim is
+ * the picture's own (End core/item.fsh), drawn block pixel by block pixel on the window's plane,
+ * wobbling the same way (Timur, 28.11: «такую же рамку как была раньше»), and the room is cut to
+ * its outline, slice by slice, since a wobbling oval is not convex.</li>
  * </ul>
  *
  * <p>Walking through: the server moves the player into the dungeon's dimension, which brings up the
@@ -68,9 +70,8 @@ import net.minecraft.world.phys.Vec3;
  * <p>With an Iris shader pack this stays off and the server's picture is drawn as before.
  */
 public final class PortalWindows {
-	/** The oval's mean edge, as a share of the window's half size (End core/item.fsh, models/build_end_window.py). */
-	static final float EDGE = 0.9f;
-	static final int SIDES = 32;
+	/** Corners of the cut round the oval (it wobbles in 9 waves, Cut.edge). */
+	static final int SIDES = 64;
 	/** Floats per vertex while clipping: x, y, z, u, v. */
 	private static final int F = 5;
 	/** After standing in a window this long, a new level of its target is taken for walking through it. */
@@ -434,6 +435,8 @@ public final class PortalWindows {
 				ctx.submitNodeCollector().submitCustomGeometry(pose, RenderTypes.entityTranslucentCull(TextureAtlas.LOCATION_BLOCKS),
 						(p, vc) -> cut.room(p, vc, w.translucent));
 			}
+			ctx.submitNodeCollector().submitCustomGeometry(pose, RenderTypes.entityTranslucentCull(TextureAtlas.LOCATION_BLOCKS),
+					(p, vc) -> cut.glow(p, vc, white));
 		}
 	}
 
@@ -462,19 +465,30 @@ public final class PortalWindows {
 		final float nx, nz, rx, rz;
 		/** Distance from the eye to the window's plane. */
 		final float d0;
+		/** The window's half width and half height (as grown or shrunk now). */
 		final float a, b;
+		/** Block pixels from the middle to the side, across and up (16 to a block, as in End core/item.fsh). */
+		final float gx, gy;
 		/** The slab behind the plane the room is squeezed into: d -> d / (alpha d + beta). */
 		final float alpha, beta, slab;
-		/** The planes through the eye along the oval's edge: x, y, z each, inward. */
-		final float[] edges = new float[SIDES * 3];
-		/** The oval's corners on its plane, x, y, z each. */
+		/** Seconds, as the picture's wobble runs (GameTime * 1200 in core/item.fsh). */
+		final float time;
+		/** Where the room is cut off, round the oval: a share of the half size, at each of SIDES angles. */
+		final float[] rad = new float[SIDES];
+		/** Those points on the window's plane, x, y, z each. */
 		final float[] ring = new float[SIDES * 3];
+		/** Each slice of the oval (middle, ring k, ring k + 1) as three planes through the eye, x, y, z each, inward. */
+		final float[] slices = new float[SIDES * 9];
+		/** Every slice reaches at least this far out, and none further than rMax. */
+		final float rMin, rMax;
 		/** From the snapshot's coordinates to camera-relative ones. */
 		final float ox, oy, oz;
 		private final float[] bufA = new float[(SIDES + 8) * 2 * F];
 		private final float[] bufB = new float[(SIDES + 8) * 2 * F];
+		private final float[] bufC = new float[(SIDES + 8) * 2 * F];
 
-		private Cut(float cx, float cy, float cz, float nx, float nz, float d0, float a, float b, float ox, float oy, float oz) {
+		private Cut(float cx, float cy, float cz, float nx, float nz, float d0, float a, float b, float gx, float gy, float time,
+				float ox, float oy, float oz) {
 			this.cx = cx;
 			this.cy = cy;
 			this.cz = cz;
@@ -485,33 +499,77 @@ public final class PortalWindows {
 			this.d0 = d0;
 			this.a = a;
 			this.b = b;
+			this.gx = gx;
+			this.gy = gy;
+			this.time = time;
 			this.ox = ox;
 			this.oy = oy;
 			this.oz = oz;
 			this.slab = 0.03f + 0.01f * d0;
 			this.alpha = 1f / (d0 + slab);
 			this.beta = slab / (d0 + slab);
+			// The room ends a pixel and a half inside the rim's outline, under its solid bands.
+			float inset = 1.5f / Math.min(gx, gy);
+			float lo = 1, hi = 0;
 			for (int k = 0; k < SIDES; k++) {
 				double t = k * Math.PI * 2 / SIDES;
-				float ex = (float) Math.cos(t) * a, ey = (float) Math.sin(t) * b;
+				float r = edge((float) t, time) - inset;
+				rad[k] = r;
+				lo = Math.min(lo, r);
+				hi = Math.max(hi, r);
+				float ex = (float) Math.cos(t) * a * r, ey = (float) Math.sin(t) * b * r;
 				ring[k * 3] = cx + rx * ex;
 				ring[k * 3 + 1] = cy + ey;
 				ring[k * 3 + 2] = cz + rz * ex;
 			}
+			// Between two ring points the cut runs straight, a little inside them.
+			this.rMin = lo * (float) Math.cos(Math.PI * 2 / SIDES) * 0.98f;
+			this.rMax = hi;
 			for (int k = 0; k < SIDES; k++) {
 				int j = (k + 1) % SIDES;
-				float ax = ring[k * 3], ay = ring[k * 3 + 1], az = ring[k * 3 + 2];
-				float bx = ring[j * 3], by = ring[j * 3 + 1], bz = ring[j * 3 + 2];
-				float mx = ay * bz - az * by, my = az * bx - ax * bz, mz = ax * by - ay * bx;
-				if (mx * cx + my * cy + mz * cz < 0) {
-					mx = -mx;
-					my = -my;
-					mz = -mz;
-				}
-				edges[k * 3] = mx;
-				edges[k * 3 + 1] = my;
-				edges[k * 3 + 2] = mz;
+				plane(slices, k * 9, cx, cy, cz, ring, k * 3, ring, j * 3);
+				plane(slices, k * 9 + 3, cx, cy, cz, ring, j * 3, ring, k * 3);
+				float[] mid = { cx, cy, cz };
+				planeThrough(slices, k * 9 + 6, ring, k * 3, ring, j * 3, mid, 0);
 			}
+		}
+
+		/** The plane through the eye, the middle and ring point at p, facing ring point at q. */
+		private static void plane(float[] out, int o, float cx, float cy, float cz, float[] ring, int p, float[] ring2, int q) {
+			float px = ring[p], py = ring[p + 1], pz = ring[p + 2];
+			float mx = cy * pz - cz * py, my = cz * px - cx * pz, mz = cx * py - cy * px;
+			if (mx * ring2[q] + my * ring2[q + 1] + mz * ring2[q + 2] < 0) {
+				mx = -mx;
+				my = -my;
+				mz = -mz;
+			}
+			out[o] = mx;
+			out[o + 1] = my;
+			out[o + 2] = mz;
+		}
+
+		/** The plane through the eye and the points at p and q, facing the point at m. */
+		private static void planeThrough(float[] out, int o, float[] a, int p, float[] b, int q, float[] c, int m) {
+			float ax = a[p], ay = a[p + 1], az = a[p + 2];
+			float bx = b[q], by = b[q + 1], bz = b[q + 2];
+			float mx = ay * bz - az * by, my = az * bx - ax * bz, mz = ax * by - ay * bx;
+			if (mx * c[m] + my * c[m + 1] + mz * c[m + 2] < 0) {
+				mx = -mx;
+				my = -my;
+				mz = -mz;
+			}
+			out[o] = mx;
+			out[o + 1] = my;
+			out[o + 2] = mz;
+		}
+
+		/**
+		 * The oval's wobbling outline at this angle, as a share of the half size: exactly the
+		 * picture's (End core/item.fsh), so the window looks as it did (Timur, 28.11).
+		 */
+		static float edge(float ang, float time) {
+			return 0.9f + 0.035f * (float) Math.sin(ang * 5.0 + time * 1.7) + 0.025f * (float) Math.sin(ang * 9.0 - time * 2.3)
+					+ 0.02f * (float) Math.sin(ang * 3.0 + time * 0.9);
 		}
 
 		/** Null: the eye is in the window (about to be moved through it) or the window is behind it. */
@@ -522,12 +580,13 @@ public final class PortalWindows {
 			if (flat < 0.35) {
 				return null;
 			}
-			float a = v.width() / 2 * EDGE * scale, b = v.height() / 2 * EDGE * scale;
+			float a = v.width() / 2 * scale, b = v.height() / 2 * scale;
+			float time = (float) ((System.nanoTime() / 1e9) % 1200.0);
 			return new Cut((float) cx, (float) cy, (float) cz, (float) (cx / flat), (float) (cz / flat), (float) flat, a, b,
-					(float) (v.bx() - cam.x), (float) (v.by() - cam.y), (float) (v.bz() - cam.z));
+					v.width() * 8, v.height() * 8, time, (float) (v.bx() - cam.x), (float) (v.by() - cam.y), (float) (v.bz() - cam.z));
 		}
 
-		/** The dark back of the oval and the rim round it. */
+		/** The dark back of the oval, and the solid bands of the rim. */
 		void frame(PoseStack.Pose p, VertexConsumer vc, TextureAtlasSprite white) {
 			float u = white.getU(0.5f), v = white.getV(0.5f);
 			// The back: at the far side of the slab, just short of where the room ends up at infinity.
@@ -541,24 +600,59 @@ public final class PortalWindows {
 						new float[] { ring[k1 * 3] * back, ring[k1 * 3 + 1] * back, ring[k1 * 3 + 2] * back },
 						new float[] { ring[k * 3] * back, ring[k * 3 + 1] * back, ring[k * 3 + 2] * back });
 			}
-			// The rim: three bands, bright inside to violet outside, a little in front of the plane, wobbling slowly.
-			float time = (System.nanoTime() % 3_600_000_000_000L) / 1e9f;
-			float front = (d0 - 0.002f) / d0;
-			band(p, vc, u, v, front, 1.0f, 1.025f, RIM_INNER, time, 0);
-			band(p, vc, u, v, front, 1.025f, 1.055f, RIM_MID, time, 1.3f);
-			band(p, vc, u, v, front, 1.055f, 1.085f, RIM_OUTER, time, 2.6f);
+			rim(p, vc, u, v, false);
 		}
 
-		private void band(PoseStack.Pose p, VertexConsumer vc, float u, float v, float front, float from, float to, int[] rgb, float time, float phase) {
-			int color = 0xFF000000 | rgb[0] << 16 | rgb[1] << 8 | rgb[2];
-			for (int k = 0; k < SIDES; k++) {
-				int j = (k + 1) % SIDES;
-				float wk = 1 + 0.012f * (float) Math.sin(time * 2.1f + k * 0.9f + phase);
-				float wj = 1 + 0.012f * (float) Math.sin(time * 2.1f + j * 0.9f + phase);
-				float[] p0 = edgePoint(k, from * wk, front), p1 = edgePoint(j, from * wj, front);
-				float[] p2 = edgePoint(j, to * wj, front), p3 = edgePoint(k, to * wk, front);
-				both(p, vc, u, v, color, p0, p1, p2, p3);
+		/** The rim's dim violet glow just inside the bands, over the room. */
+		void glow(PoseStack.Pose p, VertexConsumer vc, TextureAtlasSprite white) {
+			rim(p, vc, white.getU(0.5f), white.getV(0.5f), true);
+		}
+
+		/**
+		 * The picture's rim, block pixel by block pixel (End core/item.fsh): one pixel each of pale,
+		 * light violet and violet in from the wobbling outline, then two of violet at half strength.
+		 */
+		private void rim(PoseStack.Pose p, VertexConsumer vc, float u, float v, boolean glow) {
+			float g = Math.min(gx, gy);
+			float front = (d0 - 0.002f) / d0;
+			int x0 = (int) Math.floor(-gx), x1 = (int) Math.ceil(gx);
+			int y0 = (int) Math.floor(-gy), y1 = (int) Math.ceil(gy);
+			for (int j = y0; j < y1; j++) {
+				float qy = (j + 0.5f) / gy;
+				for (int i = x0; i < x1; i++) {
+					float qx = (i + 0.5f) / gx;
+					float rq = (float) Math.sqrt(qx * qx + qy * qy);
+					if (rq < 0.65f || rq > 1f) {
+						continue;
+					}
+					float e = edge((float) Math.atan2(qy, qx), time);
+					if (rq > e) {
+						continue;
+					}
+					float px = (e - rq) * g;
+					int color;
+					if (px >= 5) {
+						continue;
+					} else if (px >= 3) {
+						if (!glow) {
+							continue;
+						}
+						color = 0x80000000 | RIM_OUTER[0] << 16 | RIM_OUTER[1] << 8 | RIM_OUTER[2];
+					} else {
+						if (glow) {
+							continue;
+						}
+						int[] c = px < 1 ? RIM_INNER : px < 2 ? RIM_MID : RIM_OUTER;
+						color = 0xFF000000 | c[0] << 16 | c[1] << 8 | c[2];
+					}
+					float ax = i / gx * a, bx = (i + 1) / gx * a, ay = j / gy * b, by = (j + 1) / gy * b;
+					both(p, vc, u, v, color, onPlane(ax, ay, front), onPlane(bx, ay, front), onPlane(bx, by, front), onPlane(ax, by, front));
+				}
 			}
+		}
+
+		private float[] onPlane(float ex, float ey, float front) {
+			return new float[] { (cx + rx * ex) * front, (cy + ey) * front, (cz + rz * ex) * front };
 		}
 
 		/** A flat quad seen from either side (the render type may cull back faces). */
@@ -572,13 +666,9 @@ public final class PortalWindows {
 			}
 		}
 
-		private float[] edgePoint(int k, float grow, float front) {
-			float x = cx + (ring[k * 3] - cx) * grow, y = cy + (ring[k * 3 + 1] - cy) * grow, z = cz + (ring[k * 3 + 2] - cz) * grow;
-			return new float[] { x * front, y * front, z * front };
-		}
-
 		/** The faces of the room that the oval lets through, squeezed into the slab. */
 		void room(PoseStack.Pose p, VertexConsumer vc, List<Quad> quads) {
+			float step = (float) (Math.PI * 2 / SIDES);
 			for (Quad q : quads) {
 				float[] src = q.xyzuv();
 				float[] in = bufA;
@@ -595,51 +685,83 @@ public final class PortalWindows {
 				if (n < 3) {
 					continue;
 				}
-				float[] cur = bufB;
-				float[] other = bufA;
-				// Quick looks: where on the window's plane each corner is seen.
+				// Quick looks: where on the window's plane each corner is seen, as a share of the half size.
 				boolean allIn = true, right = true, left = true, up = true, down = true;
+				float minX = Float.MAX_VALUE, maxX = -Float.MAX_VALUE, minY = Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
+				float first = 0, lo = 0, hi = 0;
 				for (int i = 0; i < n; i++) {
-					float x = cur[i * F], y = cur[i * F + 1], z = cur[i * F + 2];
+					float x = bufB[i * F], y = bufB[i * F + 1], z = bufB[i * F + 2];
 					float d = x * nx + z * nz;
 					float k = d0 / Math.max(d, 1e-4f);
-					float ex = (x * k - cx) * rx + (z * k - cz) * rz;
-					float ey = y * k - cy;
-					float e = ex * ex / (a * a) + ey * ey / (b * b);
-					allIn &= e < 0.985f;
-					right &= ex > a;
-					left &= ex < -a;
-					up &= ey > b;
-					down &= ey < -b;
+					float ux = ((x * k - cx) * rx + (z * k - cz) * rz) / a;
+					float uy = (y * k - cy) / b;
+					allIn &= ux * ux + uy * uy < rMin * rMin;
+					right &= ux > rMax;
+					left &= ux < -rMax;
+					up &= uy > rMax;
+					down &= uy < -rMax;
+					minX = Math.min(minX, ux);
+					maxX = Math.max(maxX, ux);
+					minY = Math.min(minY, uy);
+					maxY = Math.max(maxY, uy);
+					float ang = (float) Math.atan2(uy, ux);
+					if (i == 0) {
+						first = ang;
+					} else {
+						float dAng = ang - first;
+						dAng -= (float) (Math.PI * 2) * Math.round(dAng / (Math.PI * 2));
+						lo = Math.min(lo, dAng);
+						hi = Math.max(hi, dAng);
+					}
 				}
 				if (right || left || up || down) {
 					continue;
 				}
-				if (!allIn) {
-					for (int k = 0; k < SIDES && n >= 3; k++) {
-						n = clip(cur, n, other, edges[k * 3], edges[k * 3 + 1], edges[k * 3 + 2], 0);
+				if (allIn) {
+					squeezeAndEmit(p, vc, bufB, n, q);
+					continue;
+				}
+				// The oval wobbles, so it is not convex: cut by each slice it may reach (each one is).
+				int s0, s1;
+				if (minX <= 0 && maxX >= 0 && minY <= 0 && maxY >= 0) {
+					s0 = 0;
+					s1 = SIDES - 1;
+				} else {
+					s0 = (int) Math.floor((first + lo) / step);
+					s1 = (int) Math.floor((first + hi) / step);
+				}
+				for (int s = s0; s <= s1; s++) {
+					int k = Math.floorMod(s, SIDES);
+					System.arraycopy(bufB, 0, bufC, 0, n * F);
+					float[] cur = bufC, other = bufA;
+					int m = n;
+					for (int c = 0; c < 3 && m >= 3; c++) {
+						m = clip(cur, m, other, slices[k * 9 + c * 3], slices[k * 9 + c * 3 + 1], slices[k * 9 + c * 3 + 2], 0);
 						float[] t = cur;
 						cur = other;
 						other = t;
 					}
-					if (n < 3) {
-						continue;
+					if (m >= 3) {
+						squeezeAndEmit(p, vc, cur, m, q);
 					}
 				}
-				// Squeeze along the rays from the eye, then hand on as a fan of (degenerate) quads.
-				for (int i = 0; i < n; i++) {
-					float d = cur[i * F] * nx + cur[i * F + 2] * nz;
-					float k = 1f / (alpha * d + beta);
-					cur[i * F] *= k;
-					cur[i * F + 1] *= k;
-					cur[i * F + 2] *= k;
-				}
-				for (int i = 1; i + 1 < n; i++) {
-					emit(p, vc, cur, 0, q);
-					emit(p, vc, cur, i, q);
-					emit(p, vc, cur, i + 1, q);
-					emit(p, vc, cur, i + 1, q);
-				}
+			}
+		}
+
+		/** Squeeze along the rays from the eye, then hand on as a fan of (degenerate) quads. */
+		private void squeezeAndEmit(PoseStack.Pose p, VertexConsumer vc, float[] cur, int n, Quad q) {
+			for (int i = 0; i < n; i++) {
+				float d = cur[i * F] * nx + cur[i * F + 2] * nz;
+				float k = 1f / (alpha * d + beta);
+				cur[i * F] *= k;
+				cur[i * F + 1] *= k;
+				cur[i * F + 2] *= k;
+			}
+			for (int i = 1; i + 1 < n; i++) {
+				emit(p, vc, cur, 0, q);
+				emit(p, vc, cur, i, q);
+				emit(p, vc, cur, i + 1, q);
+				emit(p, vc, cur, i + 1, q);
 			}
 		}
 
