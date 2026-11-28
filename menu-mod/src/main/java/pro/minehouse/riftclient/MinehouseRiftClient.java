@@ -60,6 +60,8 @@ public final class MinehouseRiftClient implements ClientModInitializer {
 		// The End opening's beam and white-out (End cannon/Limbo).
 		PayloadTypeRegistry.clientboundPlay().register(LimboPayloads.Beam.TYPE, LimboPayloads.Beam.CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(LimboPayloads.Flash.TYPE, LimboPayloads.Flash.CODEC);
+		PayloadTypeRegistry.clientboundPlay().register(LimboPayloads.Tint.TYPE, LimboPayloads.Tint.CODEC);
+		ClientPlayNetworking.registerGlobalReceiver(LimboPayloads.Tint.TYPE, (payload, context) -> LimboBeams.receive(payload));
 		ClientPlayNetworking.registerGlobalReceiver(LimboPayloads.Beam.TYPE, (payload, context) -> LimboBeams.receive(payload));
 		ClientPlayNetworking.registerGlobalReceiver(LimboPayloads.Flash.TYPE, (payload, context) -> LimboBeams.receive(payload));
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> LimboBeams.clear());

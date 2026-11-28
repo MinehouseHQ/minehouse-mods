@@ -41,6 +41,8 @@ public final class LimboBeams {
 	private static int flashStart = -1;
 	private static String flashWorld;
 	private static int flashLeft = -1;
+	private static int tintStart, tintEnd = -1000;
+	private static String tintWorld;
 
 	private LimboBeams() {
 	}
@@ -65,9 +67,21 @@ public final class LimboBeams {
 		flashLeft = -1;
 	}
 
+	static void receive(LimboPayloads.Tint p) {
+		Minecraft mc = Minecraft.getInstance();
+		if (p.ticks() <= 0) {
+			tintEnd = Math.min(tintEnd, clientTicks);
+			return;
+		}
+		tintStart = clientTicks;
+		tintEnd = clientTicks + p.ticks();
+		tintWorld = mc.level == null ? null : mc.level.dimension().identifier().toString();
+	}
+
 	static void clear() {
 		BEAMS.clear();
 		flashStart = -1;
+		tintEnd = -1000;
 	}
 
 	static void tick(Minecraft mc) {
@@ -84,6 +98,9 @@ public final class LimboBeams {
 		if (flashStart >= 0 && flashLeft < 0 && mc.level != null
 				&& !mc.level.dimension().identifier().toString().equals(flashWorld)) {
 			flashLeft = clientTicks;
+		}
+		if (tintEnd > clientTicks && mc.level != null && !mc.level.dimension().identifier().toString().equals(tintWorld)) {
+			tintEnd = clientTicks;
 		}
 		if (flashStart >= 0 && (flashLeft >= 0 && clientTicks - flashLeft > 60 || clientTicks - flashStart > 20 * 30)) {
 			flashStart = -1;
@@ -250,8 +267,9 @@ public final class LimboBeams {
 		vc.addVertex(p, row[o], row[o + 1], row[o + 2]).setColor(row[o + 3], row[o + 4], row[o + 5], row[o + 6]);
 	}
 
-	/** The white-out over the whole screen. */
+	/** The white-out over the whole screen, and under it the vision's steel-blue look. */
 	static void hud(GuiGraphicsExtractor g, DeltaTracker delta) {
+		tint(g, delta);
 		if (flashStart < 0) {
 			return;
 		}
@@ -268,5 +286,38 @@ public final class LimboBeams {
 		int rr = 255 - (int) (40 * blue), gg = 255 - (int) (12 * blue);
 		int argb = ((int) (a * 255) << 24) | (rr << 16) | (gg << 8) | 255;
 		g.fill(0, 0, g.guiWidth(), g.guiHeight(), argb);
+	}
+
+	/**
+	 * The vision in the limbo (Timur 28.11, after the 3 Body Problem titles: almost monochrome, cold steel-blue): a
+	 * blue veil over everything, deeper at the edges, in over a second and out over a second and a half.
+	 */
+	private static void tint(GuiGraphicsExtractor g, DeltaTracker delta) {
+		float now = clientTicks + delta.getGameTimeDeltaPartialTick(false);
+		if (now >= tintEnd + 30) {
+			return;
+		}
+		float a = Math.min(ease((now - tintStart) / 20f), 1 - ease((now - tintEnd) / 30f));
+		if (a <= 0.003f) {
+			return;
+		}
+		int w = g.guiWidth(), h = g.guiHeight();
+		g.fill(0, 0, w, h, argb(a * 0.34f, 0x34, 0x5A, 0x86));
+		// a vignette: the edges sink into a dark blue
+		int steps = 12;
+		int band = Math.max(2, Math.min(w, h) / 5 / steps);
+		for (int i = 0; i < steps; i++) {
+			float k = 1 - i / (float) steps;
+			int c = argb(a * 0.11f * k * k, 0x08, 0x12, 0x24);
+			int o = i * band;
+			g.fill(o, o, w - o, o + band, c);
+			g.fill(o, h - o - band, w - o, h - o, c);
+			g.fill(o, o + band, o + band, h - o - band, c);
+			g.fill(w - o - band, o + band, w - o, h - o - band, c);
+		}
+	}
+
+	private static int argb(float a, int r, int g, int b) {
+		return ((int) (Math.max(0, Math.min(1, a)) * 255) << 24) | (r << 16) | (g << 8) | b;
 	}
 }

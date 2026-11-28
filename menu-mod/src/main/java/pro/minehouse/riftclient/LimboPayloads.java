@@ -51,4 +51,16 @@ public final class LimboPayloads {
 			return TYPE;
 		}
 	}
+
+	/** The vision in the limbo: a cold steel-blue look over the next {@code ticks} (0: off), gone in another world. */
+	public record Tint(int ticks) implements CustomPacketPayload {
+		public static final Type<Tint> TYPE = new Type<>(Identifier.fromNamespaceAndPath("minehouse", "limbo_tint"));
+		public static final StreamCodec<ByteBuf, Tint> CODEC = StreamCodec.of((buf, p) -> buf.writeInt(p.ticks),
+				buf -> new Tint(buf.readInt()));
+
+		@Override
+		public Type<Tint> type() {
+			return TYPE;
+		}
+	}
 }
