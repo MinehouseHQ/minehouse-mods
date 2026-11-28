@@ -245,6 +245,16 @@ public final class PokerScreen extends Screen {
 		return e.isJsonObject() && !e.getAsJsonObject().has("empty") ? e.getAsJsonObject() : null;
 	}
 
+	/** A table for free chips (any felt but red): nothing comes from or goes to the account. */
+	private boolean free() {
+		return state != null && state.has("free") && state.get("free").getAsBoolean();
+	}
+
+	/** After an amount: « АР», or « фишек» at a free table. */
+	private String unit() {
+		return free() ? Tr.s(" фишек", " chips") : Tr.s(" АР", " AR");
+	}
+
 	private static long num(JsonObject o, String key) {
 		return o != null && o.has(key) && o.get(key).isJsonPrimitive() ? o.get(key).getAsLong() : 0;
 	}
@@ -866,7 +876,7 @@ public final class PokerScreen extends Screen {
 
 		// Name and stack in a plate under the face, the last move under that.
 		Component n = Component.literal(name(s, 64)).withStyle(st -> st.withBold(true));
-		String line2 = num(s, "stack") + Tr.s(" АР", " AR");
+		String line2 = num(s, "stack") + unit();
 		int w = Math.max(font.width(n), font.width(line2)) + 10;
 		int lx = x - w / 2;
 		int ly = fy + face + 4;
@@ -884,7 +894,7 @@ public final class PokerScreen extends Screen {
 		int y = py(0.86F) + Math.round(CH * HERO * cardScale() / 2) + 3;
 		boolean dim = flag(me, "folded") || flag(me, "out");
 		Component n = Component.literal(name(me, 80)).withStyle(st -> st.withBold(true));
-		Component st = Component.literal(num(me, "stack") + Tr.s(" АР", " AR"));
+		Component st = Component.literal(num(me, "stack") + unit());
 		int face = 10;
 		int w = face + 4 + font.width(n) + 6 + font.width(st) + 10;
 		int lx = x - w / 2;
@@ -1001,7 +1011,8 @@ public final class PokerScreen extends Screen {
 	private void drawTop(GuiGraphicsExtractor g) {
 		String title = state.has("title") ? state.get("title").getAsString() : table;
 		Component t = Component.literal(Tr.s("Покер · ", "Poker · ") + title).withStyle(st -> st.withBold(true));
-		Component b = Component.literal(Tr.s("блайнды ", "blinds ") + num(state, "small") + "/" + num(state, "big") + Tr.s(" АР", " AR"));
+		Component b = Component.literal(Tr.s("блайнды ", "blinds ") + num(state, "small") + "/" + num(state, "big")
+				+ (free() ? Tr.s(" · фишки бесплатные", " · free chips") : Tr.s(" АР", " AR")));
 		int w = Math.max(font.width(t), font.width(b)) + 12;
 		card(g, 6, 6, 6 + w, 30, PANEL, PANEL_BORDER);
 		g.text(font, t, 12, 9, 0xFFF5F5F5, false);
@@ -1107,8 +1118,8 @@ public final class PokerScreen extends Screen {
 			if (flag(me, "out")) button(x0 + 6, by, x0 + 6 + half, by + 24, Tr.s("Вернуться", "Back in"), 0xFF2F7A4A, () -> act("back", 0), true, null);
 			else button(x0 + 6, by, x0 + 6 + half, by + 24, Tr.s("Отойти", "Sit out"), 0xFF3A3A46, () -> act("sitout", 0), true, null);
 			long add = Math.max(0, Math.min(max - stack, num(state, "min")));
-			button(x0 + 8 + half, by, x1 - 6, by + 24, Tr.s("Докупить\n", "Top up\n") + add + Tr.s(" фишек", " chips"), 0xFF5A4A1A, () -> act("topup", add), !inHand && add > 0, null);
-			button(x0 + 6, y1 - 28, x1 - 6, y1 - 6, Tr.s("Выйти и забрать ", "Leave and cash out ") + stack + Tr.s(" фишек", " chips"), 0xFF6A2F2F,
+			button(x0 + 8 + half, by, x1 - 6, by + 24, (free() ? Tr.s("Добавить\n", "Add\n") : Tr.s("Докупить\n", "Top up\n")) + add + Tr.s(" фишек", " chips"), 0xFF5A4A1A, () -> act("topup", add), !inHand && add > 0, null);
+			button(x0 + 6, y1 - 28, x1 - 6, y1 - 6, (free() ? Tr.s("Выйти из-за стола", "Leave the table") : Tr.s("Выйти и забрать ", "Leave and cash out ") + stack + Tr.s(" фишек", " chips")), 0xFF6A2F2F,
 					() -> act("leave", 0), true, null);
 			if (toAct >= 0 && toAct != you && !"done".equals(stage)) {
 				JsonObject who = seat(toAct);
@@ -1120,15 +1131,33 @@ public final class PokerScreen extends Screen {
 		} else {
 			long min = num(state, "min");
 			long max = num(state, "max");
-			int y0 = y1 - 62;
+			// The owner of a built table nobody sits at picks its stakes: a row of blinds over the slider.
+			JsonArray stakes = state.has("stakes") ? state.getAsJsonArray("stakes") : null;
+			int extra = stakes != null && !stakes.isEmpty() ? 34 : 0;
+			int y0 = y1 - 62 - extra;
 			card(g, x0, y0, x1, y1, PANEL, GOLD);
 			panelTop = y0;
-			g.text(font, Component.literal(Tr.s("За стол", "Take a seat")).withStyle(st -> st.withBold(true)), x0 + 8, y0 + 6, 0xFFF5F5F5, false);
+			if (extra > 0) {
+				g.text(font, Component.literal(Tr.s("Ставки стола", "Table stakes")).withStyle(st -> st.withBold(true)), x0 + 8, y0 + 6, 0xFFF5F5F5, false);
+				int n = stakes.size();
+				int sw = (pw - 12 - 2 * (n - 1)) / n;
+				long small = num(state, "small");
+				for (int k = 0; k < n; k++) {
+					JsonArray pair = stakes.get(k).getAsJsonArray();
+					long sm = pair.get(0).getAsLong();
+					long bg = pair.get(1).getAsLong();
+					int bx = x0 + 6 + k * (sw + 2);
+					final int idx = k;
+					button(bx, y0 + 17, bx + sw, y0 + 31, sm + "/" + bg, sm == small ? 0xFF6A5520 : 0xFF26262E, () -> act("stakes", idx), true, null);
+				}
+			}
+			int sy = y0 + extra;
+			g.text(font, Component.literal(Tr.s("За стол", "Take a seat")).withStyle(st -> st.withBold(true)), x0 + 8, sy + 6, 0xFFF5F5F5, false);
 			Component range = Component.literal(min + "–" + max);
-			g.text(font, range, x1 - 8 - font.width(range), y0 + 6, 0xFF8A8A95, false);
+			g.text(font, range, x1 - 8 - font.width(range), sy + 6, 0xFF8A8A95, false);
 			buyIn = Mth.clamp(buyIn, min, max);
-			slider(g, x0 + 10, x1 - 10, y0 + 25, min, max, buyIn);
-			button(x0 + 6, y1 - 28, x1 - 6, y1 - 6, Tr.s("Купить ", "Buy ") + buyIn + Tr.s(" фишек и сесть за стол", " chips and sit down"), 0xFF2F7A4A,
+			slider(g, x0 + 10, x1 - 10, sy + 25, min, max, buyIn);
+			button(x0 + 6, y1 - 28, x1 - 6, y1 - 6, (free() ? Tr.s("Взять ", "Take ") : Tr.s("Купить ", "Buy ")) + buyIn + Tr.s(" фишек и сесть за стол", " chips and sit down"), 0xFF2F7A4A,
 					() -> act("sit", buyIn), true, null);
 		}
 
