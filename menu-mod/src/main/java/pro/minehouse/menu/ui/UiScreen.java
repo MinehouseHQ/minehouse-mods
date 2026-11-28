@@ -87,6 +87,8 @@ public final class UiScreen extends Screen implements Fitting {
 	private String sliding;
 	/** The field that takes the keyboard (its node id), or null. */
 	private String focused;
+	/** Whether we asked the game for text input (see {@link #syncTextInput()}). */
+	private boolean textInput;
 	private boolean firstRead = true;
 
 	private float previewYaw = 20;
@@ -309,6 +311,10 @@ public final class UiScreen extends Screen implements Fitting {
 		}
 		if (hudWasHidden != null && !hudWasHidden && minecraft.gui.hud.isHidden()) minecraft.gui.hud.toggle();
 		hudWasHidden = null;
+		if (textInput) {
+			textInput = false;
+			minecraft.onTextInputFocusChange(this, false);
+		}
 		super.removed();
 	}
 
@@ -504,6 +510,7 @@ public final class UiScreen extends Screen implements Fitting {
 
 	@Override
 	public void extractRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float a) {
+		syncTextInput();
 		super.extractRenderState(g, mouseX, mouseY, a);
 		if (wheel != null) {
 			drawWheel(g, mouseX, mouseY);
@@ -720,6 +727,8 @@ public final class UiScreen extends Screen implements Fitting {
 		boolean on = f != null && !n.flag("disabled");
 		boolean focus = on && n.id.equals(focused);
 		card(g, n.x, n.y, n.x + n.w, n.y + n.h, Theme.MUTED_BG, focus ? Theme.ACCENT : hover && on ? Theme.FAINT : Theme.BORDER);
+		// Where the IME (Chinese, Japanese, ...) shows its candidates: under the field.
+		if (focus) minecraft.textInputManager().setTextInputArea(n.x, n.y, n.x + n.w, n.y + n.h);
 		int x0 = n.x + 5;
 		int room = n.w - 10;
 		int ty = f != null && f.multiline ? n.y + 4 : n.y + (n.h - 8) / 2;
@@ -1209,9 +1218,23 @@ public final class UiScreen extends Screen implements Fitting {
 		return item(slot.item(), slot.model());
 	}
 
+	/**
+	 * Since 26.x the game reads the keyboard through SDL, and SDL sends typed characters only while
+	 * text input is on (SDL_StartTextInput): vanilla EditBox turns it on when it gets focus. Our fields
+	 * aren't EditBoxes, so we do the same, or charTyped never comes (Timur 28.11: the post window
+	 * had a caret but took no letters). Called every frame, acts only on a change.
+	 */
+	private void syncTextInput() {
+		boolean want = focused != null && wheel == null && fields.containsKey(focused);
+		if (want == textInput) return;
+		textInput = want;
+		minecraft.onTextInputFocusChange(this, want);
+	}
+
 	@Override
 	public void tick() {
 		super.tick();
+		syncTextInput();
 		if (!com.mojang.blaze3d.platform.InputConstants.isKeyDown(com.mojang.blaze3d.platform.InputConstants.KEY_LSHIFT)
 				&& !com.mojang.blaze3d.platform.InputConstants.isKeyDown(com.mojang.blaze3d.platform.InputConstants.KEY_RSHIFT)) shiftArmed = true;
 		for (int i = 0; i < wheelGrow.length; i++) wheelGrow[i] = UiWheel.approach(wheelGrow[i], i == wheelHover ? 1 : 0, 0.5F);
