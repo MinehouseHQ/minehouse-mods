@@ -71,6 +71,14 @@ public final class WardrobeNet {
 	}
 
 	/** Receiver registration advertises support for the server's extra display passengers. */
+	/** Capability (Cosmetics 0.39.0+): this client focuses the pet (camera, drag, "pet" marker). */
+	public record PetFocus() implements CustomPacketPayload {
+		static final Type<PetFocus> TYPE = new Type<>(Identifier.fromNamespaceAndPath(NS, "pet_focus"));
+		static final StreamCodec<FriendlyByteBuf, PetFocus> CODEC = StreamCodec.unit(new PetFocus());
+
+		@Override public Type<PetFocus> type() { return TYPE; }
+	}
+
 	public record MultiWear() implements CustomPacketPayload {
 		static final Type<MultiWear> TYPE = new Type<>(Identifier.fromNamespaceAndPath(NS, "multi_wear"));
 		static final StreamCodec<FriendlyByteBuf, MultiWear> CODEC = StreamCodec.unit(new MultiWear());
@@ -186,11 +194,13 @@ public final class WardrobeNet {
 		ClientPlayNetworking.registerGlobalReceiver(AnimationFrames.TYPE, (payload, context) -> animation = payload);
 		PayloadTypeRegistry.clientboundPlay().register(FittingEnd.TYPE, FittingEnd.CODEC.cast());
 		PayloadTypeRegistry.clientboundPlay().register(MultiWear.TYPE, MultiWear.CODEC.cast());
+		PayloadTypeRegistry.clientboundPlay().register(PetFocus.TYPE, PetFocus.CODEC.cast());
 		PayloadTypeRegistry.clientboundPlay().register(StatePayload.TYPE, StatePayload.CODEC.cast());
 		PayloadTypeRegistry.serverboundPlay().register(ActionPayload.TYPE, ActionPayload.CODEC.cast());
 		ClientPlayNetworking.registerGlobalReceiver(StatePayload.TYPE, (payload, context) -> receive(context.client(), payload.json()));
 		ClientPlayNetworking.registerGlobalReceiver(FittingEnd.TYPE, (payload, context) -> payload.apply(context.client().gui.screen()));
 		ClientPlayNetworking.registerGlobalReceiver(MultiWear.TYPE, (payload, context) -> {});
+		ClientPlayNetworking.registerGlobalReceiver(PetFocus.TYPE, (payload, context) -> {});
 		// Gate can swap backend connections without a DISCONNECT. The new play session must start clean.
 		ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> reset());
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> reset());

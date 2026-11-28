@@ -15,5 +15,7 @@ public abstract class ItemDisplayRendererMixin {
 			at = @At("TAIL"))
 	private void minehouse$blendPet(Display.ItemDisplay display, ItemDisplayEntityRenderState state, float partialTick, CallbackInfo ci) {
 		FrameBlend.pet(display, state.item);
+		// In the fitting room the drag turns your pet like it turns you.
+		state.entityYRot += pro.minehouse.menu.wardrobe.WardrobeCamera.petTurn(display);
 	}
 }

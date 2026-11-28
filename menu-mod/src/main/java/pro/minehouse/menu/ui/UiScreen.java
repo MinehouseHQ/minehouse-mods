@@ -63,6 +63,7 @@ public final class UiScreen extends Screen implements Fitting {
 	private String id;
 	private int rev;
 	private String scene;
+	private String focus;
 	private final List<Panel> panels = new ArrayList<>();
 	private final List<Marker> markers = new ArrayList<>();
 	private int linkFrom = -1;
@@ -89,6 +90,7 @@ public final class UiScreen extends Screen implements Fitting {
 	private boolean firstRead = true;
 
 	private float previewYaw = 20;
+	private float petYaw;
 	private boolean dragging;
 	private Boolean hudWasHidden;
 	private boolean confirmingLink;
@@ -143,6 +145,7 @@ public final class UiScreen extends Screen implements Fitting {
 		id = UiTree.str(json, "id", "");
 		rev = UiTree.num(json, "rev", 0);
 		scene = UiTree.str(json, "scene", "dim");
+		focus = UiTree.str(json, "focus", "");
 		panels.clear();
 		markers.clear();
 		hints.clear();
@@ -260,8 +263,18 @@ public final class UiScreen extends Screen implements Fitting {
 	}
 
 	@Override
+	public boolean petFocus() {
+		return "pet".equals(focus);
+	}
+
+	@Override
 	public Map<String, String> trying() {
 		return wear;
+	}
+
+	@Override
+	public float petYaw() {
+		return petYaw;
 	}
 
 	@Override
@@ -359,8 +372,16 @@ public final class UiScreen extends Screen implements Fitting {
 			left = project(feet.add(0, 1.05, 0).add(side.scale(1.15)));
 			right = project(feet.add(0, 1.05, 0).subtract(side.scale(1.15)));
 			for (int i = 0; i < markers.size(); i++) {
-				int[] p = project(markerPoint(markers.get(i).at(), feet, cam, side));
-				if (p == null) p = new int[] {center[0], center[1] - 40};
+				int[] p;
+				if (markers.get(i).at().equals("pet")) {
+					// Over the fitting pet; off screen (not drawn, not clickable) while there is none.
+					Vec3 pet = pro.minehouse.menu.wardrobe.WardrobeCamera.petPoint(partial);
+					p = pet == null ? null : project(pet);
+					if (p == null) p = new int[] {-1000, -1000};
+				} else {
+					p = project(markerPoint(markers.get(i).at(), feet, cam, side));
+					if (p == null) p = new int[] {center[0], center[1] - 40};
+				}
 				markerXY[i * 2] = p[0];
 				markerXY[i * 2 + 1] = p[1];
 			}
@@ -452,6 +473,13 @@ public final class UiScreen extends Screen implements Fitting {
 			return feet.add(0, 1.12, 0).subtract(front.scale(0.28));
 		}
 		if (at.equals("feet")) return feet.add(0, 0.1, 0);
+		// Client 1.54.0+ (Cosmetics sends these only to clients with the pet_focus channel):
+		// on the body's surface facing the camera, so the dot never hides behind you.
+		Vec3 toCam = cam.position().subtract(feet);
+		Vec3 out = new Vec3(toCam.x, 0, toCam.z).normalize();
+		if (at.equals("body")) return feet.add(0, 1.08, 0).add(out.scale(0.2));
+		if (at.equals("belt")) return feet.add(0, 0.76, 0).add(out.scale(0.22));
+		if (at.equals("shoulder")) return feet.add(0, 1.48, 0).add(side.scale(0.32)).add(out.scale(0.05));
 		return feet.add(0, 1.78, 0);
 	}
 
@@ -1049,6 +1077,7 @@ public final class UiScreen extends Screen implements Fitting {
 			Marker m = markers.get(i);
 			int x = markerXY[i * 2];
 			int y = markerXY[i * 2 + 1];
+			if (x < -100) continue;
 			if (m.at().equals(linkTo) && linkFrom >= 0 && linkFrom < panels.size()) {
 				Node from = panels.get(linkFrom).node();
 				dashedLine(g, from.x, from.y + 14, x, y, (Theme.ACCENT & 0xFFFFFF) | 0xC0000000);
@@ -1058,6 +1087,7 @@ public final class UiScreen extends Screen implements Fitting {
 			Marker m = markers.get(i);
 			int x = markerXY[i * 2];
 			int y = markerXY[i * 2 + 1];
+			if (x < -100) continue;
 			boolean hover = Math.abs(mx - x) <= 6 && Math.abs(my - y) <= 6;
 			dot(g, x, y, m.active() ? Theme.ACCENT : hover ? Theme.FG : 0xFFD4D4D8, m.active());
 			if (hover && m.tooltip() != null) g.setTooltipForNextFrame(font, Component.literal(m.tooltip()), mx, my);
@@ -1455,7 +1485,9 @@ public final class UiScreen extends Screen implements Fitting {
 			return true;
 		}
 		if (dragging) {
-			previewYaw = Mth.wrapDegrees(previewYaw - (float) dx * 2.5f);
+			// Looking at the pet, the drag turns it instead of you.
+			if (petFocus()) petYaw = Mth.wrapDegrees(petYaw - (float) dx * 2.5f);
+			else previewYaw = Mth.wrapDegrees(previewYaw - (float) dx * 2.5f);
 			return true;
 		}
 		return super.mouseDragged(event, dx, dy);

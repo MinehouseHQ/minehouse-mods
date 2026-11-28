@@ -13,6 +13,16 @@ public interface Fitting {
 		return true;
 	}
 
+	/** Whether the pet is being looked at (the «Питомцы» tab): the camera flies over to it. */
+	default boolean petFocus() {
+		return false;
+	}
+
+	/** The drag turn of the fitting pet, degrees (dragging turns the pet while it is looked at). */
+	default float petYaw() {
+		return 0;
+	}
+
 	/** Slot → cosmetic id drawn on the player. */
 	Map<String, String> trying();
 

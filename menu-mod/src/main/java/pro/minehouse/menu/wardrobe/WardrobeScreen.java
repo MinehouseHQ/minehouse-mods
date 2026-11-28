@@ -185,6 +185,7 @@ public final class WardrobeScreen extends Screen implements WardrobeNet.FittingV
 	/** id → colour being tried on (sent to the server at once if the player owns it). */
 	private final Map<String, Integer> tint = new HashMap<>();
 	private float previewYaw = 20;
+	private float petYaw;
 	private boolean dragging;
 	private double scroll;
 	private final Map<String, ItemStackRenderState> models = new HashMap<>();
@@ -291,9 +292,19 @@ public final class WardrobeScreen extends Screen implements WardrobeNet.FittingV
 	}
 
 	@Override
+	public boolean petFocus() {
+		return slot == Slot.PET;
+	}
+
+	@Override
 	public Map<String, String> trying() {
 		// If a tentative style loses its last matching piece, show the server outfit instead.
 		return selection.trying != state.worn() && requirement(selectedItem()) != null ? state.worn() : selection.trying;
+	}
+
+	@Override
+	public float petYaw() {
+		return petYaw;
 	}
 
 	@Override
@@ -1131,7 +1142,9 @@ public final class WardrobeScreen extends Screen implements WardrobeNet.FittingV
 	@Override
 	public boolean mouseDragged(MouseButtonEvent event, double dx, double dy) {
 		if (dragging) {
-			previewYaw = Mth.wrapDegrees(previewYaw - (float) dx * 2.5f);
+			// Looking at the pet, the drag turns it instead of you.
+			if (petFocus()) petYaw = Mth.wrapDegrees(petYaw - (float) dx * 2.5f);
+			else previewYaw = Mth.wrapDegrees(previewYaw - (float) dx * 2.5f);
 			return true;
 		}
 		return super.mouseDragged(event, dx, dy);
