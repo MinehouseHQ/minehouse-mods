@@ -57,6 +57,15 @@ public final class MinehouseRiftClient implements ClientModInitializer {
 		ClientTickEvents.END_CLIENT_TICK.register(PortalWindows::tick);
 		LevelRenderEvents.COLLECT_SUBMITS.register(PortalWindows::submit);
 		LevelRenderEvents.COLLECT_SUBMITS.register(BlackHoleBlocks::submit);
+		// The End opening's beam and white-out (End cannon/Limbo).
+		PayloadTypeRegistry.clientboundPlay().register(LimboPayloads.Beam.TYPE, LimboPayloads.Beam.CODEC);
+		PayloadTypeRegistry.clientboundPlay().register(LimboPayloads.Flash.TYPE, LimboPayloads.Flash.CODEC);
+		ClientPlayNetworking.registerGlobalReceiver(LimboPayloads.Beam.TYPE, (payload, context) -> LimboBeams.receive(payload));
+		ClientPlayNetworking.registerGlobalReceiver(LimboPayloads.Flash.TYPE, (payload, context) -> LimboBeams.receive(payload));
+		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> LimboBeams.clear());
+		ClientTickEvents.END_CLIENT_TICK.register(LimboBeams::tick);
+		LevelRenderEvents.COLLECT_SUBMITS.register(LimboBeams::submit);
+		HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("minehouse-rift", "limbo_flash"), LimboBeams::hud);
 		// The opening of Chapter 2, on the server's word; nothing of the game's interface over it.
 		PayloadTypeRegistry.clientboundPlay().register(IntroPayload.TYPE, IntroPayload.CODEC);
 		ClientPlayNetworking.registerGlobalReceiver(IntroPayload.TYPE, (payload, context) -> Intro.start());
