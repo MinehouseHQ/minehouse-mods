@@ -85,7 +85,21 @@ test {
 	useJUnitPlatform()
 }
 
+def elementalResources = layout.buildDirectory.dir('generated/elemental-resources')
+
+tasks.register('bakeElemental', Exec) {
+	def sources = layout.projectDirectory.dir('models/elemental')
+	def baker = layout.projectDirectory.file('tools/bake_elemental.py')
+	inputs.dir(sources)
+	inputs.file(baker)
+	inputs.file('tools/bbanim.py')
+	outputs.dir(elementalResources)
+	commandLine 'python3', '-B', baker.asFile, sources.asFile, elementalResources.get().asFile
+}
+
 processResources {
+	dependsOn tasks.named('bakeElemental')
+	from elementalResources
 	def version = project.version
 	inputs.property "version", version
 

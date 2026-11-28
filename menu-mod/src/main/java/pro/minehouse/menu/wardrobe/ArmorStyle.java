@@ -21,6 +21,7 @@ import net.minecraft.world.item.equipment.Equippable;
 /** The catalog IDs supported by the client. An unknown armor style never unlocks or renders. */
 enum ArmorStyle {
 	GOLD("armor_gold_curb", EquipmentAssets.GOLD, "Надень золотую броню", "Wear gold armor"),
+	PIVOZAVR("pivozavr_latun", EquipmentAssets.GOLD, "Надень золотую броню", "Wear gold armor"),
 	DIAMOND("armor_diamond_curb", EquipmentAssets.DIAMOND, "Надень алмазную броню", "Wear diamond armor"),
 	NETHERITE("armor_netherite_curb", EquipmentAssets.NETHERITE, "Надень незеритовую броню", "Wear netherite armor"),
 	IRON("armor_iron_curb", EquipmentAssets.IRON, "Надень железную броню", "Wear iron armor"),

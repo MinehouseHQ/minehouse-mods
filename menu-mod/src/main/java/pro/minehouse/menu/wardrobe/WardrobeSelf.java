@@ -12,6 +12,8 @@ import com.mojang.math.Axis;
 
 import net.fabricmc.fabric.api.client.rendering.v1.LivingEntityRenderLayerRegistrationCallback;
 import net.fabricmc.fabric.api.client.rendering.v1.RenderStateDataKey;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.player.PlayerModel;
 import net.minecraft.client.renderer.SubmitNodeCollector;
@@ -23,6 +25,8 @@ import net.minecraft.client.renderer.entity.state.AvatarRenderState;
 import net.minecraft.client.renderer.item.ItemStackRenderState;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.core.component.DataComponents;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.Identifier;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.world.entity.Avatar;
@@ -60,6 +64,11 @@ public final class WardrobeSelf {
 
 	// A distinct wire ID lets pre-shoulder clients leave this passenger to the vanilla renderer.
 	private static final Identifier KARAT_DISPLAY = Identifier.fromNamespaceAndPath("minehouse-cosmetics-display", "karat");
+	/** Capability only: the server sends identity through the normal tracked passenger packets. */
+	private record ElementalObservers() implements CustomPacketPayload {
+		static final Type<ElementalObservers> TYPE = new Type<>(Identifier.fromNamespaceAndPath(WardrobeNet.NS, "elemental_observers"));
+		@Override public Type<ElementalObservers> type() { return TYPE; }
+	}
 
 	/** Set while the wardrobe builds its preview, which dresses the player itself. */
 	static boolean suppress;
@@ -68,10 +77,13 @@ public final class WardrobeSelf {
 	}
 
 	static void init() {
+		PayloadTypeRegistry.clientboundPlay().register(ElementalObservers.TYPE, StreamCodec.unit(new ElementalObservers()));
+		ClientPlayNetworking.registerGlobalReceiver(ElementalObservers.TYPE, (payload, context) -> {});
 		LivingEntityRenderLayerRegistrationCallback.EVENT.register((type, renderer, helper, context) -> {
 			if (renderer instanceof AvatarRenderer<?> avatar) {
 				helper.register(new BackpackLayer(avatar));
 				helper.register(new BeltLayer(avatar));
+				helper.register(new ElementalLimbLayer(avatar));
 				helper.register(new HatLayer(avatar));
 			}
 		});
@@ -128,6 +140,7 @@ public final class WardrobeSelf {
 		state.setData(BACK_KIND, null);
 		state.setData(PREVIEW_YAW, null);
 		state.setData(BELT, null);
+		state.setData(ElementalLimbLayer.MODELS, null);
 		state.setData(HIDE_LEGS, null);
 		state.setData(EXTRA_HATS, new ArrayList<>());
 		state.setData(EXTRA_BACKPACKS, new ArrayList<>());
@@ -208,19 +221,23 @@ public final class WardrobeSelf {
 			if (id != null && !(k != null && underGlider(state))) addModel(state, EXTRA_BACKPACKS, WardrobeScreen.stack(id), CosmeticMotion.pick(net.item(id), idleOnly));
 		}
 		String belt = worn.get("belt");
-		CosmeticMotion.Pick beltPick = CosmeticMotion.worn(avatar.getId(), net.item(belt), fittingRoom);
-		if (belt != null && CosmeticMotion.draw(beltPick) && visible(state)) {
-			ItemStackRenderState model = new ItemStackRenderState();
-			FrameBlend.resolve(model, WardrobeScreen.stack(belt, beltPick == null ? -1 : beltPick.a()), beltPick);
-			state.setData(BELT, model);
+		String elemental = ElementalLimbLayer.kind(belt);
+		if (elemental != null) {
+			// Elemental belts have no rigid waist display or server-selected limb timeline.
+			ElementalLimbLayer.extract(state, elemental, ElementalLimbLayer.loopFrame(avatar.level().getGameTime()));
+		} else if (belt != null && visible(state)) {
 			WardrobeNet.Item item = net.item(belt);
-			if (item != null && item.hideLegs()) {
-				hideLegs(state);
+			CosmeticMotion.Pick beltPick = CosmeticMotion.worn(avatar.getId(), item, fittingRoom);
+			if (CosmeticMotion.draw(beltPick)) {
+				ItemStackRenderState model = new ItemStackRenderState();
+				FrameBlend.resolve(model, WardrobeScreen.stack(belt, beltPick == null ? -1 : beltPick.a()), beltPick);
+				state.setData(BELT, model);
+				if (item != null && item.hideLegs()) hideLegs(state);
 			}
 		}
 		for (int i = 2; i <= 3 && visible(state); i++) {
 			String id = worn.get(WardrobeNet.wearKey("belt", i));
-			if (id != null) {
+			if (id != null && ElementalLimbLayer.kind(id) == null) {
 				addModel(state, EXTRA_BELTS, WardrobeScreen.stack(id), CosmeticMotion.pick(net.item(id), idleOnly));
 				WardrobeNet.Item item = net.item(id); if (item != null && item.hideLegs()) hideLegs(state);
 			}
@@ -277,10 +294,18 @@ public final class WardrobeSelf {
 				}
 				continue;
 			}
-			if (!visible(state)) {
+			boolean belt = "belt".equals(slot);
+			Identifier itemModel = stack.get(DataComponents.ITEM_MODEL);
+			String elemental = belt && WardrobeNet.NS.equals(itemModel.getNamespace()) ? ElementalLimbLayer.kind(itemModel.getPath()) : null;
+			if (elemental != null) {
+				if ("limbs".equals(cmd.getString(2))) {
+					// Identity is tracked; both clients sample the same level-clock loop as the wearer.
+					int frame = ElementalLimbLayer.loopFrame(display.level().getGameTime());
+					ElementalLimbLayer.extract(state, elemental, frame);
+				}
 				continue;
 			}
-			boolean belt = "belt".equals(slot);
+			if (!visible(state)) continue;
 			ItemStackRenderState model = new ItemStackRenderState();
 			bake.accept(model, stack);
 			if ("shoulder".equals(slot)) {

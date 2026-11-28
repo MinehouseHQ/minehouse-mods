@@ -96,6 +96,9 @@ class FrameBlendTest {
 		@Override public void clear() { layers.clear(); }
 		@Override public int minehouse$activeLayerCount() { return layers.size(); }
 		@Override public Layer[] minehouse$layers() { return layers.toArray(Layer[]::new); }
+		@Override public void minehouse$displayContext(net.minecraft.world.item.ItemDisplayContext context) {
+			throw new UnsupportedOperationException("FrameBlend does not set the display context directly");
+		}
 	}
 
 	private static class Layer extends ItemStackRenderState.LayerRenderState implements LayerRenderStateAccess {

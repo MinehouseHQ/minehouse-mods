@@ -117,6 +117,21 @@ class ArmorStyleTest {
 	}
 
 	@Test
+	void pivozavrStyleProjectsOnlyGoldAndKeepsTheRealEquipment() {
+		String id = "pivozavr_latun";
+		var state = new HumanoidRenderState();
+		var chest = state.chestEquipment = new ItemStack(Items.GOLDEN_CHESTPLATE);
+		var boots = state.feetEquipment = new ItemStack(Items.IRON_BOOTS);
+		assertEquals("Надень золотую броню", ArmorStyle.requirement(id, slot -> slot == EquipmentSlot.FEET ? boots : ItemStack.EMPTY));
+		assertNull(ArmorStyle.requirement(id, slot -> slot == EquipmentSlot.CHEST ? chest : ItemStack.EMPTY));
+		apply(state, Map.of("armor", id));
+		assertNotSame(chest, state.chestEquipment);
+		assertEquals("minehouse-cosmetics:" + id, state.chestEquipment.get(DataComponents.EQUIPPABLE).assetId().orElseThrow().identifier().toString());
+		assertEquals(EquipmentAssets.GOLD, chest.get(DataComponents.EQUIPPABLE).assetId().orElseThrow());
+		assertSame(boots, state.feetEquipment);
+	}
+
+	@Test
 	void eachStyleUnlocksOnlyForItsOwnPieceInItsOwnSlot() {
 		var pieces = Map.of(
 				"armor_gold_curb", List.of(Items.GOLDEN_HELMET, Items.GOLDEN_CHESTPLATE, Items.GOLDEN_LEGGINGS, Items.GOLDEN_BOOTS),

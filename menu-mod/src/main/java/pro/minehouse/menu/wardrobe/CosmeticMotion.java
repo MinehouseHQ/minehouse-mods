@@ -93,7 +93,8 @@ public final class CosmeticMotion {
 
 	/** Every client tick. */
 	static void tick(Minecraft mc) {
-		if (WardrobeNet.animation != null) return; // never predict the live outfit on a supporting server
+		// Advance local inputs for slots the snapshot does not cover (e.g. shoulder).
+		// worn() still uses authoritative samples for hat/backpack/belt when available.
 		LocalPlayer p = mc.player;
 		if (p == null) {
 			seen = null;

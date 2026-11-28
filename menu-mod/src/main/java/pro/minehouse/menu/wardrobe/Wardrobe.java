@@ -33,8 +33,10 @@ public final class Wardrobe {
 		pro.minehouse.menu.ui.UiNet.init();
 		pro.minehouse.menu.poker.PokerNet.init();
 		WardrobeSelf.init();
+		ClientLifecycleEvents.CLIENT_STARTED.register(client -> PunchyHandCompat.init());
 		PetPat.init();
 		WardrobeRoute.init();
+		ElementalTrailRenderer.init();
 		PictureInPictureRendererRegistry.register(context -> new WardrobePreview());
 		key = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.minehouse.wardrobe", InputConstants.KEY_O, CATEGORY));
 		ClientLifecycleEvents.CLIENT_STARTED.register(Wardrobe::freeKeyO);
