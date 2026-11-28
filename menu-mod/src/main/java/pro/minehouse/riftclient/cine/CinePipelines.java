@@ -38,7 +38,11 @@ public final class CinePipelines {
 	public static final GpuFormat HDR = GpuFormat.RGBA16_FLOAT;
 	public static final GpuFormat DEPTH = GpuFormat.D32_FLOAT;
 
-	static final BindGroupLayout CINE = BindGroupLayout.builder().withUniform("CineInfo", UniformType.UNIFORM_BUFFER).build();
+	/** The film's own numbers, and the game's block textures for the things made of blocks. */
+	static final BindGroupLayout CINE = BindGroupLayout.builder()
+			.withUniform("CineInfo", UniformType.UNIFORM_BUFFER)
+			.withUniform("Atlas", UniformType.COMBINED_IMAGE_SAMPLER)
+			.build();
 	static final BindGroupLayout POST = BindGroupLayout.builder().withUniform("CinePost", UniformType.UNIFORM_BUFFER).build();
 	static final BindGroupLayout SCENE_SAMPLER = BindGroupLayout.builder().withUniform("SceneSampler", UniformType.COMBINED_IMAGE_SAMPLER).build();
 	static final BindGroupLayout SCENE_BLOOM_SAMPLERS = BindGroupLayout.builder()

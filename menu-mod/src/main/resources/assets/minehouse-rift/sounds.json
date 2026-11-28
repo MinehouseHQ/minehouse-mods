@@ -2,5 +2,8 @@
   "intro": {
     "subtitle": "Рождается новая вселенная",
     "sounds": [{ "name": "minehouse-rift:intro", "stream": true }]
+  },
+  "vision": {
+    "sounds": [{ "name": "minehouse-rift:vision", "stream": true }]
   }
 }

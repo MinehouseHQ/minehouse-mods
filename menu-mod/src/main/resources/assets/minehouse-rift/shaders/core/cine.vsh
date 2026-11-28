@@ -23,6 +23,7 @@ layout(location = 3) out vec4 vData;
 layout(location = 4) out vec3 vView;
 layout(location = 5) out vec3 vLocal;
 layout(location = 6) out vec3 vLocalNormal;
+layout(location = 7) out vec3 vSize;  // how big the copy is along its own axes (blocks tile their texture by it)
 
 vec3 qrot(vec4 q, vec3 v) {
     return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
@@ -33,6 +34,7 @@ void main() {
     vLocalNormal = Normal;
     vUv = UV0;
     vData = IData;
+    vSize = IScale.xyz * IPos.w;
     if (TextureMat[3].w > 0.5) {
         vec4 c = ModelViewMat * vec4(IPos.xyz, 1.0);
         float ca = cos(IScale.w), sa = sin(IScale.w);

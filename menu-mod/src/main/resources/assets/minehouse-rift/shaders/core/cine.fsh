@@ -15,11 +15,14 @@ layout(location = 3) in vec4 vData;
 layout(location = 4) in vec3 vView;
 layout(location = 5) in vec3 vLocal;
 layout(location = 6) in vec3 vLocalNormal;
+layout(location = 7) in vec3 vSize;
 
 layout(location = 0) out vec4 fragColor;
 
+uniform sampler2D Atlas;
+
 const int LIT = 0, EMISSIVE = 1, SEM = 2, GLOW = 3, PLANET = 4, STAR = 5, NERVE = 6, GLASS = 7, CLOUD = 8,
-    ATMOS = 9, DUST = 10, PLASMA = 11, SILHOUETTE = 12, FOAM = 13, BUBBLE = 14;
+    ATMOS = 9, DUST = 10, PLASMA = 11, SILHOUETTE = 12, FOAM = 13, BUBBLE = 14, BLOCK = 15, PIXEL = 16;
 
 float time() { return CamTime.w; }
 
@@ -41,6 +44,20 @@ vec3 sem(vec3 n, vec3 v, float scale, float hair, float baseLit) {
     float body = baseLit * (0.18 + 0.82 * wrap) * (0.55 + 0.6 * fuzz) * (1.0 - pores);
     float glow = rim * (0.65 + hair * (fine * 1.6 - 0.3)) * (0.6 + LightDir.w);
     return ColorModulator.rgb * (body + glow);
+}
+
+// a face of a unit box (-0.5..0.5) the way the game lays a block texture on it, in texture repeats along the face
+// (sz: how many blocks the box is along each axis); .z is the game's face shade
+vec3 blockFace(vec3 q, vec3 ln, vec3 sz) {
+    if (abs(ln.y) > 0.5) return vec3((q.x + 0.5) * sz.x, (ln.y > 0.0 ? q.z + 0.5 : 0.5 - q.z) * sz.z, ln.y > 0.0 ? 1.0 : 0.5);
+    if (abs(ln.x) > 0.5) return vec3((ln.x > 0.0 ? 0.5 - q.z : q.z + 0.5) * sz.z, (0.5 - q.y) * sz.y, 0.6);
+    return vec3((ln.z > 0.0 ? q.x + 0.5 : 0.5 - q.x) * sz.x, (0.5 - q.y) * sz.y, 0.8);
+}
+
+// how the game lights a block face, with some of the film's key light (p0.z: how much)
+float blockLight(vec3 n, float shade, float key) {
+    float dif = clamp(dot(n, normalize(LightDir.xyz)), 0.0, 1.0);
+    return shade * mix(1.0, 0.3 + 0.9 * dif, key);
 }
 
 void main() {
@@ -139,6 +156,30 @@ void main() {
         float skin = cFbm3(vLocal * 3.0 + vData.y * 7.0, 4);
         float spot = pow(clamp(dot(reflect(-v, n), normalize(LightDir.xyz)), 0.0, 1.0), 12.0);
         c = ColorModulator.rgb * (rim * (0.6 + 0.8 * skin) + 0.06 * skin + spot * 0.6) * p0.y * vData.x;
+    } else if (mat == BLOCK) {
+        // a block of the game: its texture from the atlas (the rectangle per instance, or the top and bottom
+        // of the material), cut where the texture is clear (leaves, glass); p0.y: glow, p0.w: grass-green top
+        // TextureMat[3].x > 0: the texture repeats once per block of the box's size (a whole chunk in one box)
+        vec3 sz = TextureMat[3].x > 0.5 ? max(floor(vSize / TextureMat[3].x + 0.5), vec3(1.0)) : vec3(1.0);
+        vec3 f = blockFace(vLocal, vLocalNormal, sz);
+        vec4 rect = vData;
+        if (vLocalNormal.y > 0.5 && p1.z > p1.x) rect = p1;
+        if (vLocalNormal.y < -0.5 && TextureMat[2].z > TextureMat[2].x) rect = TextureMat[2];
+        vec2 span = rect.zw - rect.xy;
+        vec2 uv = rect.xy + span * clamp(fract(f.xy), 0.002, 0.998);
+        vec4 tex = textureGrad(Atlas, uv, dFdx(f.xy) * span, dFdy(f.xy) * span);
+        if (tex.a < 0.1) discard;
+        vec3 albedo = tex.rgb * ColorModulator.rgb;
+        if (p0.w > 0.5 && vLocalNormal.y > 0.5) albedo *= vec3(0.55, 0.78, 0.36);
+        // only the bright pixels glow: the berries of a vine, the flame of a torch, the cracks of glowstone
+        float hot = smoothstep(0.45, 0.85, max(tex.r, max(tex.g, tex.b)));
+        c = albedo * blockLight(n, f.z, p0.z) + tex.rgb * p0.y * hot;
+        c = fogged(c);
+    } else if (mat == PIXEL) {
+        // one pixel of a texture as a cube: its colour in the instance, a = how much it glows
+        vec3 f = blockFace(vLocal, vLocalNormal, vec3(1.0));
+        c = vData.rgb * ColorModulator.rgb * blockLight(n, f.z, p0.z) + vData.rgb * vData.a * p0.y;
+        c = fogged(c);
     } else if (mat == SILHOUETTE) {
         float rim = pow(1.0 - clamp(dot(n, v), 0.0, 1.0), 5.0);
         float back = clamp(dot(n, normalize(LightDir.xyz)), 0.0, 1.0);

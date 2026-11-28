@@ -3,14 +3,18 @@ package pro.minehouse.riftclient.vision;
 import java.util.ArrayList;
 import java.util.List;
 
+import net.minecraft.resources.Identifier;
 import pro.minehouse.riftclient.cine.Film;
 import pro.minehouse.riftclient.cine.Frame;
 import pro.minehouse.riftclient.cine.Keys;
 
 /**
- * The vision in the limbo (Timur 28.11: «почти один в один» with the 3 Body Problem titles): one pull-back across
- * all scales, from a spore to the stars, drawn by the client in 3D. 66.5 seconds, ending in the white of the limbo.
- * The shots and their cuts follow the reference frame by frame (ref-3bp/SHOTS.md on the ref/3bp-frames branch).
+ * The vision in the limbo: how the world of the game is made, one pull-back across all its scales, drawn by the
+ * client in 3D from the game's own textures. A pixel, a texture, a block in the rock, a cave and a lush cave, a
+ * player of sculk veins on a beacon, a village and its chunks, the world as a ball of blocks, the Overworld, the
+ * Nether and the End, and the Eye (Зеница) before the sun. 66.5 seconds, ending in the white of the limbo. The
+ * camera, the rhythm, the cuts and the steel grade follow the 3 Body Problem titles (Timur 28.11: «такая же
+ * катсцена, но про устройство мира Minecraft»; ref-3bp/SHOTS.md on the ref/3bp-frames branch).
  */
 public final class VisionFilm implements Film {
 	public static final float LENGTH = 66.5f;
@@ -18,15 +22,21 @@ public final class VisionFilm implements Film {
 	private final List<Shot> shots = new ArrayList<>();
 
 	public VisionFilm() {
-		shots.add(new S01Spore(meshes));
-		shots.add(new S02Tubes(meshes));
-		shots.add(new S03Mineral(meshes));
-		shots.add(new S04Tangle());
-		shots.add(new S06Figure(meshes));
-		shots.add(new S08City(meshes));
-		shots.add(new S11Space(meshes));
-		shots.add(new S13Ice(meshes));
-		shots.add(new S16Star(meshes));
+		shots.add(new M01Pixel(meshes));
+		shots.add(new M02Block(meshes));
+		shots.add(new M03Cave(meshes));
+		shots.add(new M04Lush(meshes));
+		shots.add(new M05Player(meshes));
+		shots.add(new M06City(meshes));
+		shots.add(new M07World(meshes));
+		shots.add(new M08Dimensions(meshes));
+		shots.add(new M09Eye(meshes));
+	}
+
+	/** Its own music (sounds/vision.ogg): in the manner of the titles' score, its own tune, on the same cuts. */
+	@Override
+	public Identifier music() {
+		return Identifier.fromNamespaceAndPath("minehouse-rift", "vision");
 	}
 
 	@Override

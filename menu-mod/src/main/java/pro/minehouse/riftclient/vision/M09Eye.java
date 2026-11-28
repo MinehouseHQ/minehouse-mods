@@ -8,21 +8,24 @@ import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
+import pro.minehouse.riftclient.cine.BlockTex;
 import pro.minehouse.riftclient.cine.Frame;
 import pro.minehouse.riftclient.cine.Instances;
 import pro.minehouse.riftclient.cine.Keys;
 import pro.minehouse.riftclient.cine.Material;
-import pro.minehouse.riftclient.cine.Mesh;
-import pro.minehouse.riftclient.cine.Shapes;
 
 /**
- * 51.8–66.5: out of a blur, a star; a dark lumpy body rises at the bottom, loops of plasma beside it; the star
- * falls away and the body hangs in silhouette by the loops; the star rises from below with the body in transit
- * before it; the star sets into a sea of cloud; pulling back, it all sits on a giant sphere, and it lifts to white.
+ * 51.8–66.5: out of a blur, the square sun of the game; an Eye of Ender rises at the bottom, loops of end rods
+ * beside the sun; the sun falls away and the Eye hangs dark by the loops; the sun rises from below with the Eye in
+ * transit before it; the sun sets into the game's square clouds; pulling back, it all sits before a giant Eye, the
+ * Зеница, and it lifts to white.
  */
-final class S16Star extends Shot {
+final class M09Eye extends Shot {
 	private final Meshes m;
-	private final Mesh loops;
+	private final Instances rods = new Instances("end rod loops");
+	private final Instances sun = new Instances("sun");
+	private final Instances ender = new Instances("eye of ender");
+	private final Instances clouds = new Instances("square clouds");
 	private final Instances wisps = new Instances("star wisps");
 	private final Instances sea = new Instances("cloud sea");
 	private final Instances spray = new Instances("sea spray");
@@ -46,15 +49,28 @@ final class S16Star extends Shot {
 			new float[] { 63.5f, 0f, 50f, 620f, 0f, -30f, -700f, 0, 18 },
 			new float[] { 66.5f, 0f, 70f, 820f, 0f, -25f, -700f, 0, 18 });
 
-	S16Star(Meshes m) {
+	M09Eye(Meshes m) {
 		super(51.8f, 66.6f);
 		this.m = m;
 		Random r = new Random(71);
-		Mesh.Builder b = new Mesh.Builder();
-		// two bundles of loops on the star's limb: upper left and right
-		loopBundle(b, r, new Vector3f(-0.75f, 0.55f, 0.35f), 70, 0.55f);
-		loopBundle(b, r, new Vector3f(0.8f, 0.45f, 0.4f), 50, 0.4f);
-		loops = b.upload("star loops");
+		// two bundles of loops on the sun's edge, upper left and right, beaded with end rods
+		loopBundle(rods, r, new Vector3f(-0.75f, 0.55f, 0.35f), 40, 0.55f);
+		loopBundle(rods, r, new Vector3f(0.8f, 0.45f, 0.4f), 28, 0.4f);
+		// the sun of the game, a flat square of its pixels; the Eye of Ender, its pixels swelled into a ball
+		pixelSlab(sun, BlockTex.image("textures/environment/celestial/sun.png"), false);
+		pixelSlab(ender, BlockTex.image("textures/item/ender_eye.png"), true);
+		// the game's clouds: flat blocks laid out from its cloud picture, under the sun
+		BlockTex.Image sky = BlockTex.image("textures/environment/clouds.png");
+		for (int y = 0; y < sky.height(); y++) {
+			for (int x = 0; x < sky.width(); x++) {
+				if ((sky.at(x, y) >>> 24) > 128) {
+					float wx = (x - sky.width() / 2f) * 12, wz = -700 + (y - sky.height() / 2f) * 12;
+					if (Math.abs(wx) < 1400 && wz < 200 && wz > -1500) {
+						clouds.add(wx, -62, wz, 1, new Quaternionf(), 12, 4, 12, 1, 0, 0, 0);
+					}
+				}
+			}
+		}
 		for (int i = 0; i < 160; i++) {
 			float a = (float) (r.nextDouble() * Math.PI * 2);
 			float rr = STAR_R * (1.02f + (float) Math.abs(r.nextGaussian()) * 0.35f);
@@ -73,7 +89,29 @@ final class S16Star extends Shot {
 		}
 	}
 
-	private static void loopBundle(Mesh.Builder b, Random r, Vector3f dir, int count, float scale) {
+	/**
+	 * A picture as cubes, one per pixel, in a unit square facing +z (d3 of each: how much it glows). Swelled: each
+	 * pixel is a column as deep as a ball would be there, so the picture becomes a blocky ball.
+	 */
+	private static void pixelSlab(Instances out, BlockTex.Image img, boolean swell) {
+		int w = img.width(), h = img.height();
+		Quaternionf none = new Quaternionf();
+		for (int y = 0; y < h; y++) {
+			for (int x = 0; x < w; x++) {
+				int c = img.at(x, y);
+				float rr = (c >> 16 & 255) / 255f, gg = (c >> 8 & 255) / 255f, bb = (c & 255) / 255f;
+				if ((c >>> 24) < 60 || !swell && rr + gg + bb < 0.3f) {
+					continue;
+				}
+				float px = (x + 0.5f) / w - 0.5f, py = 0.5f - (y + 0.5f) / h;
+				float depth = swell ? (float) Math.sqrt(Math.max(0.02f, 0.25f - px * px - py * py)) * 2 : 1f / w;
+				float glow = swell ? (gg > 0.5f && gg > rr ? 0.6f : 0) : 1;
+				out.add(px, py, 0, 1f / w, none, 1, 1, depth * w, rr, gg, bb, glow);
+			}
+		}
+	}
+
+	private static void loopBundle(Instances out, Random r, Vector3f dir, int count, float scale) {
 		dir.normalize();
 		Vector3f foot = new Vector3f(dir).mul(STAR_R).add(STAR);
 		Vector3f tan = new Vector3f(dir).cross(0, 0, 1).normalize();
@@ -87,7 +125,10 @@ final class S16Star extends Shot {
 				Vector3f p = new Vector3f(foot).add(off).add(new Vector3f(tan).mul((float) -Math.cos(a) * span)).add(new Vector3f(dir).mul((float) Math.sin(a) * h - 4));
 				line.add(p);
 			}
-			Shapes.tube(b, line, new float[] { 0.25f + r.nextFloat() * 0.6f }, 5);
+			float bead = 0.8f + r.nextFloat() * 1.2f;
+			for (Vector3f p : line) {
+				out.add(p.x, p.y, p.z, bead, 0.6f + r.nextFloat() * 0.6f, i);
+			}
 		}
 	}
 
@@ -105,9 +146,9 @@ final class S16Star extends Shot {
 		float rack = Keys.ramp(t, 51.8f, 52.4f);
 		f.focus(t < 52.4f ? Keys.lerp(1.5f, dist, rack) : t < 56.5f ? 40 : dist, t < 52.4f ? 18 : 2, 40);
 		float starBright = (0.75f - 0.25f * Keys.ramp(t, 58f, 60f)) * (1 - 0.7f * Keys.ramp(t, 53.0f, 53.8f) * (1 - Keys.ramp(t, 55.8f, 56.6f))) + 0.6f * VisionFilm.bump(t, 56.3f, 57.1f, 58.8f);
-		f.draw(m.sphere, null, Material.light(Material.STAR).color(0.85f, 0.92f, 1f).p(starBright, 9, 0), new Matrix4f().translate(STAR).scale(STAR_R));
+		f.draw(m.box, sun, Material.solid(Material.PIXEL).grey(1).p(2.6f * starBright, 0, 0), new Matrix4f().translate(STAR).scale(STAR_R * 2.2f));
 		f.draw(m.quad, null, Material.light(Material.GLOW).color(0.6f, 0.72f, 0.85f).p(4, 5f, 0.08f).sprite(), new Matrix4f().translate(STAR).scale(STAR_R * 1.8f));
-		f.draw(loops, null, Material.light(Material.NERVE).color(0.7f, 0.82f, 0.95f).p(0.12f, 0, 0), null);
+		f.draw(m.box, rods, Material.light(Material.EMISSIVE).color(0.85f, 0.9f, 1f).p(0.5f, 0, 0), null);
 		f.draw(m.quad, wisps, Material.light(Material.PLASMA).color(0.55f, 0.7f, 0.85f).p(0.15f, 2, 0), null);
 		// the dark body: close and big at first; from 57.5 kept on the line to the star's middle, a dot in transit
 		Matrix4f body;
@@ -118,19 +159,19 @@ final class S16Star extends Shot {
 			Vector3f to = new Vector3f(STAR).sub(eye).normalize().mul(200).add(eye);
 			body = new Matrix4f().translate(to).scale(bodySize);
 		}
-		f.draw(m.lump, null, Material.solid(Material.SILHOUETTE).color(0.35f, 0.45f, 0.55f).p(0.6f, 0, 0), body);
+		f.draw(m.box, ender, Material.solid(Material.PIXEL).grey(0.6f).p(1.2f, 1, 0), body.scale(2.2f));
 		// the sea of cloud and the mist sweeping in
 		float seaIn = Keys.ramp(t, 58.9f, 60.0f);
 		if (seaIn > 0) {
 			f.draw(m.sphere, null, Material.solid(Material.SEM).color(0.4f, 0.5f, 0.6f).p(0.05f, 2.0f, 0.3f),
 					new Matrix4f().translate(0, -8070, -700).scale(8000));
-			f.draw(m.quad, sea, Material.light(Material.CLOUD).color(0.7f, 0.8f, 0.9f).p(0.1f * seaIn, 0, 0).sprite(), new Matrix4f().translate(0, -20 * (1 - seaIn), 0));
+			f.draw(m.box, clouds, Material.solid(Material.LIT).grey(0.75f * seaIn).p(0.3f, 0, 0), new Matrix4f().translate((t - 59) * 3, -20 * (1 - seaIn), 0));
+			f.draw(m.quad, sea, Material.light(Material.CLOUD).color(0.7f, 0.8f, 0.9f).p(0.05f * seaIn, 0, 0).sprite(), new Matrix4f().translate(0, -20 * (1 - seaIn), 0));
 			f.draw(m.quad, spray, Material.light(Material.CLOUD).color(0.85f, 0.92f, 1f).p(0.12f * seaIn, 0, 0).sprite(), null);
-			// the giant sphere the whole scene sits on: its dark curve closes in at the edges
+			// the giant Eye the whole scene sits before: the Зеница, its pupil waking as the camera pulls back
 			float big = Keys.ramp(t, 62.0f, 64.5f);
 			if (big > 0) {
-				f.draw(m.sphere, null, Material.solid(Material.SEM).color(0.9f * big, 1.05f * big, 1.2f * big).p(0.006f, 1.5f, 0.5f),
-						new Matrix4f().translate(0, -60, -2600).scale(1250));
+				f.draw(m.box, ender, Material.solid(Material.PIXEL).grey(1.4f * big).p(3f * big, 0, 0), new Matrix4f().translate(0, -60, -2600).scale(2500));
 			}
 		}
 		f.draw(m.quad, null, Material.light(Material.CLOUD).color(0.8f, 0.88f, 0.95f).p(0.4f * VisionFilm.bump(t, 58.8f, 59.3f, 60.4f), 0, 0).sprite(),
@@ -140,7 +181,10 @@ final class S16Star extends Shot {
 
 	@Override
 	public void close() {
-		loops.close();
+		rods.close();
+		sun.close();
+		ender.close();
+		clouds.close();
 		wisps.close();
 		sea.close();
 		spray.close();

@@ -41,7 +41,14 @@ void main() {
     vec3 pale = vec3(0.88, 0.93, 0.96);
     vec3 g = l < 0.45 ? mix(deep, steel, smoothstep(0.0, 0.45, l) * 0.9 + 0.1 * l / 0.45) : mix(steel, pale, smoothstep(0.45, 1.05, l));
     g *= smoothstep(0.0, 0.08, l) * 0.9 + 0.1;
+    vec3 real = c / (1.0 + 0.35 * l);
     g = mix(g, c / (1.0 + c), 0.08);
+    // the colours of the blocks, let through the steel by as much as the shot wants (kept at the grade's brightness)
+    if (Tint.x > 0.0) {
+        float gl = dot(g, vec3(0.2126, 0.7152, 0.0722));
+        float rl = max(dot(real, vec3(0.2126, 0.7152, 0.0722)), 1e-4);
+        g = mix(g, real * (gl / rl), Tint.x);
+    }
     // grain
     float n = hash(floor(uv * vec2(textureSize(SceneSampler, 0))) + fract(Pass.z * 13.7) * 91.0) - 0.5;
     g += n * Look.z * (0.6 + 0.4 * l);

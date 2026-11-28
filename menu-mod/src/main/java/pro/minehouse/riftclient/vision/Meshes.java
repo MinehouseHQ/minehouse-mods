@@ -5,7 +5,7 @@ import pro.minehouse.riftclient.cine.Shapes;
 
 /** The shared shapes of the vision, built once. */
 final class Meshes implements AutoCloseable {
-	final Mesh sphere, sphereLow, box, quad, pipe, pipeLow, lump;
+	final Mesh sphere, sphereLow, box, quad, pipe, pipeLow, lump, cross;
 
 	Meshes() {
 		Mesh.Builder b = new Mesh.Builder();
@@ -29,6 +29,9 @@ final class Meshes implements AutoCloseable {
 		b = new Mesh.Builder();
 		Shapes.lump(b, 48, 96, 0.12f, 3);
 		lump = b.upload("lump");
+		b = new Mesh.Builder();
+		Shapes.cross(b);
+		cross = b.upload("cross");
 	}
 
 	@Override
@@ -40,5 +43,6 @@ final class Meshes implements AutoCloseable {
 		pipe.close();
 		pipeLow.close();
 		lump.close();
+		cross.close();
 	}
 }

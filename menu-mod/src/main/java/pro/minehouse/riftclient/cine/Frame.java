@@ -29,6 +29,8 @@ public final class Frame {
 	/** zoom blur centre x, y, lift of the blacks, spare */
 	final Vector4f aim = new Vector4f(0.5f, 0.5f, 0, 0);
 	float white;
+	/** How much of the real colours shows through the steel grade (0 = all steel). */
+	float colour;
 	/** focus distance (0 = all sharp), blur per unit of defocus in pixels at 1080p, largest blur */
 	final Vector4f focus = new Vector4f(0, 0, 0, 0);
 	float shotSeconds;
@@ -51,6 +53,7 @@ public final class Frame {
 		framing.set(2.39f, 0, 0, 0.6f);
 		aim.set(0.5f, 0.5f, 0, 0);
 		white = 0;
+		colour = 0;
 		focus.set(0, 0, 0, 0);
 		clear.w = 100000;
 		shotSeconds = seconds;
@@ -147,6 +150,12 @@ public final class Frame {
 	/** A macro lens: sharp at this distance, soft before and behind it. */
 	public Frame focus(float distance, float strength, float largest) {
 		focus.set(distance, strength, largest, 0);
+		return this;
+	}
+
+	/** Lets the real colours through the steel grade: 0 = all steel (the default), 1 = the colours as they are. */
+	public Frame colour(float c) {
+		colour = Math.max(0, Math.min(1, c));
 		return this;
 	}
 

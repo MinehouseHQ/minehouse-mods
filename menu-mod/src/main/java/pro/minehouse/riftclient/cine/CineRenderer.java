@@ -29,6 +29,8 @@ import com.mojang.renderpearl.api.textures.GpuTextureView;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.Projection;
 import net.minecraft.client.renderer.ProjectionMatrixBuffer;
+import net.minecraft.client.renderer.texture.AbstractTexture;
+import net.minecraft.client.renderer.texture.TextureAtlas;
 
 /**
  * Draws a client-side film over the whole screen: its own 3D picture (with depth) in bright colours, then the bloom
@@ -36,7 +38,7 @@ import net.minecraft.client.renderer.ProjectionMatrixBuffer;
  */
 public final class CineRenderer implements AutoCloseable {
 	private static final int INFO_BYTES = 128;
-	private static final int POST_BYTES = 64;
+	private static final int POST_BYTES = 80;
 
 	private final Frame frame = new Frame();
 	private final Projection projection = new Projection();
@@ -79,6 +81,7 @@ public final class CineRenderer implements AutoCloseable {
 		projection.setupPerspective(frame.near, frame.far, frame.fov, width, height);
 		RenderSystem.backupProjectionMatrix();
 		RenderSystem.setProjectionMatrix(projectionBuffer.getBuffer(projection), ProjectionType.PERSPECTIVE);
+		AbstractTexture atlas = Minecraft.getInstance().getTextureManager().getTexture(TextureAtlas.LOCATION_BLOCKS);
 		try (RenderPass pass = enc.createRenderPass(() -> "MineHouse film", hdrView, Optional.of(frame.clear), depthView, OptionalDouble.of(RenderSystem.DEFAULT_DEPTH_CLEAR_VALUE))) {
 			RenderPipeline current = null;
 			for (int k = 0; k < order.size(); k++) {
@@ -88,6 +91,7 @@ public final class CineRenderer implements AutoCloseable {
 					pass.setPipeline(RenderSystem.getCompiledPipeline(p));
 					RenderSystem.bindDefaultUniforms(pass);
 					pass.setUniform("CineInfo", info);
+					pass.setUniform("Atlas", atlas.getTextureView(), atlas.getSampler());
 					current = p;
 				}
 				Instances inst = d.instances() == null ? single : d.instances();
@@ -155,6 +159,7 @@ public final class CineRenderer implements AutoCloseable {
 			b.putFloat(stepX).putFloat(stepY).putFloat(frame.filmSeconds).putFloat(frame.white);
 			b.putFloat(frame.framing.x).putFloat(frame.framing.y).putFloat(frame.framing.z).putFloat(frame.framing.w);
 			b.putFloat(frame.aim.x).putFloat(frame.aim.y).putFloat(frame.aim.z).putFloat(frame.focus.x);
+			b.putFloat(frame.colour).putFloat(0).putFloat(0).putFloat(0);
 			b.flip();
 			enc.writeToBuffer(post[k].slice(), b);
 		}

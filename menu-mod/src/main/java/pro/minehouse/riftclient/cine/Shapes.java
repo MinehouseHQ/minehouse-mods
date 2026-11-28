@@ -73,6 +73,18 @@ public final class Shapes {
 		}
 	}
 
+	/** Two squares crossed corner to corner in a unit box (-0.5..0.5): the game's plants, roots and vines. */
+	public static void cross(Mesh.Builder b) {
+		float h = 0.5f, n = 0.7071f;
+		int a = b.vertex(-h, -h, -h, n, 0, -n, 0, 1), c = b.vertex(h, -h, h, n, 0, -n, 1, 1), d = b.vertex(h, h, h, n, 0, -n, 1, 0), e = b.vertex(-h, h, -h, n, 0, -n, 0, 0);
+		b.quad(a, c, d, e);
+		a = b.vertex(-h, -h, h, n, 0, n, 0, 1);
+		c = b.vertex(h, -h, -h, n, 0, n, 1, 1);
+		d = b.vertex(h, h, -h, n, 0, n, 1, 0);
+		e = b.vertex(-h, h, h, n, 0, n, 0, 0);
+		b.quad(a, c, d, e);
+	}
+
 	/** A flat square from -1 to 1 facing +z: sprites. */
 	public static void quad(Mesh.Builder b) {
 		int a = b.vertex(-1, -1, 0, 0, 0, 1, 0, 0);

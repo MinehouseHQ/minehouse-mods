@@ -3,6 +3,11 @@ package pro.minehouse.riftclient.cine;
 import java.util.function.Supplier;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
+import net.minecraft.client.resources.sounds.SoundInstance;
+import net.minecraft.resources.Identifier;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.util.RandomSource;
 import pro.minehouse.riftclient.MinehouseRiftClient;
 
 /**
@@ -15,6 +20,7 @@ public final class CinePlayer {
 	private static long start;
 	private static float still = -1;
 	private static boolean broken;
+	private static SoundInstance music;
 
 	private CinePlayer() {
 	}
@@ -31,8 +37,21 @@ public final class CinePlayer {
 			fail(e);
 			return;
 		}
+		// the scenes are built: the film and its music start together from here
 		start = System.nanoTime() - (long) (from * 1e9);
 		still = -1;
+		Identifier id = film.music();
+		if (id != null && from < 0.5f) {
+			try {
+				Minecraft mc = mc();
+				mc.getMusicManager().stopPlaying();
+				music = new SimpleSoundInstance(id, SoundSource.MASTER, 1f, 1f, RandomSource.create(), false, 0, SoundInstance.Attenuation.NONE, 0, 0, 0, true);
+				mc.getSoundManager().play(music);
+			} catch (RuntimeException e) {
+				MinehouseRiftClient.LOG.warn("Film music off", e);
+				music = null;
+			}
+		}
 	}
 
 	/** Holds the film on one moment (for looking at it frame by frame). */
@@ -41,6 +60,10 @@ public final class CinePlayer {
 	}
 
 	public static void stop() {
+		if (music != null) {
+			mc().getSoundManager().stop(music);
+			music = null;
+		}
 		if (film != null) {
 			film.close();
 			film = null;
