@@ -71,8 +71,11 @@ public final class LimboBeams {
 		Minecraft mc = Minecraft.getInstance();
 		if (p.ticks() <= 0) {
 			tintEnd = Math.min(tintEnd, clientTicks);
+			pro.minehouse.riftclient.cine.CinePlayer.stop();
 			return;
 		}
+		// the vision itself is a film the client draws in 3D (VisionFilm); the veil stays for when it cannot play
+		pro.minehouse.riftclient.cine.CinePlayer.play(pro.minehouse.riftclient.vision.VisionFilm::new, 0);
 		tintStart = clientTicks;
 		tintEnd = clientTicks + p.ticks();
 		tintWorld = mc.level == null ? null : mc.level.dimension().identifier().toString();
@@ -269,7 +272,9 @@ public final class LimboBeams {
 
 	/** The white-out over the whole screen, and under it the vision's steel-blue look. */
 	static void hud(GuiGraphicsExtractor g, DeltaTracker delta) {
-		tint(g, delta);
+		if (!pro.minehouse.riftclient.cine.CinePlayer.playing()) {
+			tint(g, delta);
+		}
 		if (flashStart < 0) {
 			return;
 		}

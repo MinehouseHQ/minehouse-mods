@@ -69,6 +69,12 @@ public final class MinehouseRiftClient implements ClientModInitializer {
 		ClientPlayNetworking.registerGlobalReceiver(LimboPayloads.Flash.TYPE, (payload, context) -> LimboBeams.receive(payload));
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> LimboBeams.clear());
 		ClientTickEvents.END_CLIENT_TICK.register(LimboBeams::tick);
+		// Client-side films (the vision in the limbo): their pipelines load with the game's shaders.
+		pro.minehouse.riftclient.cine.CinePipelines.init();
+		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> pro.minehouse.riftclient.cine.CinePlayer.stop());
+		if ("film".equals(System.getProperty("minehouse.selftest"))) {
+			pro.minehouse.riftclient.cine.FilmSelfTest.register(pro.minehouse.riftclient.vision.VisionFilm::new);
+		}
 		LevelRenderEvents.COLLECT_SUBMITS.register(LimboBeams::submit);
 		HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("minehouse-rift", "limbo_flash"), LimboBeams::hud);
 		// The opening of Chapter 2, on the server's word; nothing of the game's interface over it.

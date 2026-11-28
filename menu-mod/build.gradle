@@ -31,6 +31,10 @@ loom {
 			runDir = project.findProperty("selftestDir") ?: "run-selftest"
 			vmArg "-Dminehouse.selftest=${project.findProperty("selftest") ?: "true"}"
 			programArgs "--username", "Steve"
+			// -PfilmTimes=0.5,2,5: the moments the film self-test saves (-Pselftest=film)
+			if (project.hasProperty("filmTimes")) {
+				vmArg "-Dminehouse.filmTimes=${project.property("filmTimes")}"
+			}
 			// -Psize=960x540: window size (the poker test looks at the table on a few).
 			if (project.hasProperty("size")) {
 				def wh = project.property("size").toString().split("x")
