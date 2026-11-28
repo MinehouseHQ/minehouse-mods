@@ -172,6 +172,73 @@ class ServerPackTest {
 		assertEquals("abcdef0123456789abcdef0123456789abcdef01", state.sha1());
 	}
 
+	@Test
+	void remembersEachServerSeparately() {
+		ServerPack.useDirs(this.tmp.resolve("ours"), this.tmp.resolve("downloads"));
+		String main = "http://play.minehouse.pro:25524";
+		String test = "http://test.minehouse.pro:25524";
+		String a = "a".repeat(40);
+		String b = "b".repeat(40);
+		ServerPack.update(s -> s.with(main, ID.toString(), a, true));
+		ServerPack.update(s -> s.with(test, ID.toString(), b, true));
+		ServerPack.State state = ServerPack.readState();
+		assertEquals(test, state.base());
+		assertEquals(b, state.sha1());
+		assertEquals(a, state.known().get(main).sha1());
+		// The last joined server goes first, the others are prefetched too.
+		assertEquals(java.util.List.of(test, main), ServerPack.prefetchBases(state, main));
+
+		// A prefetch of another server keeps the current one current.
+		ServerPack.update(s -> s.with(main, ID.toString(), "c".repeat(40), false));
+		state = ServerPack.readState();
+		assertEquals(test, state.base());
+		assertEquals(b, state.sha1());
+		assertEquals("c".repeat(40), state.known().get(main).sha1());
+
+		// Old state files (one server, no map) still read.
+		ServerPack.writeState(new ServerPack.State(main, ID.toString(), a));
+		assertEquals(java.util.List.of(main), ServerPack.prefetchBases(ServerPack.readState(), null));
+		assertEquals(java.util.List.of(main), ServerPack.prefetchBases(ServerPack.State.EMPTY, main));
+	}
+
+	@Test
+	void forgetsOldestServerBeyondLimit() {
+		ServerPack.State state = ServerPack.State.EMPTY;
+		for (int i = 0; i < ServerPack.MAX_SERVERS + 2; i++) {
+			state = state.with("http://s" + i + ".minehouse.pro:25524", null, String.valueOf(i).repeat(40), i == 0);
+		}
+		assertEquals(ServerPack.MAX_SERVERS, state.known().size());
+		// The current server is never dropped.
+		assertTrue(state.known().containsKey("http://s0.minehouse.pro:25524"));
+	}
+
+	@Test
+	void latePrefetchAsksToApplyInMenu() throws Exception {
+		byte[] old = zip("{\"pack\":{\"pack_format\":80,\"description\":\"old\"}}");
+		byte[] pack = zip("{\"pack\":{\"pack_format\":80,\"description\":\"new\"}}");
+		String oldSha1 = sha1(old);
+		String sha1 = sha1(pack);
+		AtomicInteger downloads = new AtomicInteger();
+		HttpServer server = autohost(pack, sha1, downloads);
+		try {
+			ServerPack.useDirs(this.tmp.resolve("ours"), this.tmp.resolve("downloads"));
+			String base = "http://127.0.0.1:" + server.getAddress().getPort();
+			// The game started with the previous pack...
+			Files.createDirectories(ServerPack.file(oldSha1).getParent());
+			Files.write(ServerPack.file(oldSha1), old);
+			ServerPack.writeState(new ServerPack.State(base, ID.toString(), oldSha1));
+			ServerPack.initializeForTest();
+			assertEquals(oldSha1, ServerPack.activeSha1());
+			assertFalse(ServerPack.pendingApply());
+			// ...and the new one arrives later: it is to be applied in the menu.
+			ServerPack.prefetchNow(base, ServerPack.readState());
+			assertEquals(1, downloads.get());
+			assertTrue(ServerPack.pendingApply());
+		} finally {
+			server.stop(0);
+		}
+	}
+
 	/** Polymer autohost: serves anything under its prefix, the part after '+' is ignored. */
 	private static HttpServer autohost(byte[] pack, String announcedSha1, AtomicInteger downloads) throws Exception {
 		HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);

@@ -13,17 +13,27 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileTime;
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.function.UnaryOperator;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.SharedConstants;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.TitleScreen;
+import net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen;
 import net.minecraft.network.Connection;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.common.ServerboundResourcePackPacket;
@@ -49,7 +59,11 @@ import org.jspecify.annotations.Nullable;
  *       once, no download and no reload (also no reload when leaving the server);</li>
  *   <li>at game start {@link #startPrefetch} asks the server which pack is current
  *       ({@code minehouse/pack_info}, served by MineHouse Ambient through Polymer) and downloads a
- *       new one in the background, so a pack update does not cost a download on join.</li>
+ *       new one in the background, so a pack update does not cost a download on join;</li>
+ *   <li>a pack that finishes downloading after the game has loaded is applied right away while
+ *       the player is still in the menus ({@link #applyInMenu}), so the join after a pack update
+ *       costs no reload either;</li>
+ *   <li>each MineHouse server (main, test) keeps its own pack, all of them are prefetched.</li>
  * </ul>
  * Anything unexpected (no file, other hash, a broken pack) falls back to the vanilla flow.
  */
@@ -65,6 +79,8 @@ public final class ServerPack {
 	private static final PackSelectionConfig SELECTION = new PackSelectionConfig(true, Pack.Position.TOP, true);
 	private static final Gson GSON = new Gson();
 	private static final long STARTUP_WAIT_MS = 2_000L;
+	/** How many MineHouse servers (main, test, ...) we remember and prefetch packs for. */
+	static final int MAX_SERVERS = 3;
 
 	private static @Nullable Path dir;
 	private static @Nullable Path vanillaCache;
@@ -74,13 +90,66 @@ public final class ServerPack {
 	private static volatile @Nullable String activeSha1;
 	private static volatile boolean initialized;
 	private static volatile @Nullable CompletableFuture<Void> prefetch;
+	/** The prefetch got the current server's newest pack: apply it if it is not the active one. */
+	private static volatile boolean pendingApply;
 
 	private ServerPack() {
 	}
 
-	/** Remembered between launches: where the MineHouse pack comes from and its newest hash. */
-	record State(@Nullable String base, @Nullable String id, @Nullable String sha1) {
-		static final State EMPTY = new State(null, null, null);
+	/** The newest pack of one MineHouse server. */
+	record Known(@Nullable String id, @Nullable String sha1) {
+	}
+
+	/**
+	 * Remembered between launches: the MineHouse server joined last ({@code base}) with its newest
+	 * pack, and the newest pack of every server we know ({@code servers}, by base, oldest first).
+	 */
+	record State(@Nullable String base, @Nullable String id, @Nullable String sha1, @Nullable Map<String, Known> servers) {
+		static final State EMPTY = new State(null, null, null, null);
+
+		State(@Nullable String base, @Nullable String id, @Nullable String sha1) {
+			this(base, id, sha1, null);
+		}
+
+		/** Every known server with its pack; the last joined one is always in it. */
+		Map<String, Known> known() {
+			Map<String, Known> all = new LinkedHashMap<>();
+			if (this.servers != null) {
+				this.servers.forEach((b, k) -> {
+					if (b != null && k != null && normalize(k.sha1()) != null) {
+						all.put(b, new Known(k.id(), normalize(k.sha1())));
+					}
+				});
+			}
+			if (this.base != null && this.sha1 != null) {
+				all.put(this.base, new Known(this.id, this.sha1));
+			}
+			return all;
+		}
+
+		/** This server's newest pack; it becomes the current server when {@code current}. */
+		State with(String server, @Nullable String newId, String newSha1, boolean current) {
+			Map<String, Known> all = known();
+			all.remove(server);
+			all.put(server, new Known(newId, newSha1));
+			String keep = current ? server : this.base;
+			while (all.size() > MAX_SERVERS) {
+				String oldest = all.keySet().stream().filter(b -> !b.equals(keep) && !b.equals(server)).findFirst().orElse(null);
+				if (oldest == null) {
+					break;
+				}
+				all.remove(oldest);
+			}
+			if (current || this.base == null || this.base.equals(server)) {
+				return new State(server, newId, newSha1, all);
+			}
+			return new State(this.base, this.id, this.sha1, all);
+		}
+	}
+
+	/** Client init: applies a late prefetch in the menus, see {@link #applyInMenu}. */
+	public static void init() {
+		ClientTickEvents.END_CLIENT_TICK.register(ServerPack::applyInMenu);
 	}
 
 	// ---- startup -------------------------------------------------------------------------------
@@ -91,16 +160,20 @@ public final class ServerPack {
 			return;
 		}
 		State state = readState();
-		String base = state.base() != null ? state.base() : defaultBase();
-		if (base == null) {
+		List<String> bases = prefetchBases(state, defaultBase());
+		if (bases.isEmpty()) {
 			return;
 		}
 		CompletableFuture<Void> future = new CompletableFuture<>();
 		Thread thread = new Thread(() -> {
 			try {
-				prefetchNow(base, state);
-			} catch (Throwable t) {
-				MinehouseMenu.LOG.info("MineHouse server pack prefetch skipped: {}", t.toString());
+				for (String base : bases) {
+					try {
+						prefetchNow(base, readState());
+					} catch (Throwable t) {
+						MinehouseMenu.LOG.info("MineHouse server pack prefetch from {} skipped: {}", base, t.toString());
+					}
+				}
 			} finally {
 				future.complete(null);
 			}
@@ -108,6 +181,24 @@ public final class ServerPack {
 		thread.setDaemon(true);
 		prefetch = future;
 		thread.start();
+	}
+
+	/** The last joined server first (its pack is the one the game starts with), then the others. */
+	static List<String> prefetchBases(State state, @Nullable String fallback) {
+		List<String> bases = new ArrayList<>();
+		if (state.base() != null) {
+			bases.add(state.base());
+		} else if (fallback != null) {
+			bases.add(fallback);
+		}
+		List<String> others = new ArrayList<>(state.known().keySet());
+		java.util.Collections.reverse(others);
+		for (String base : others) {
+			if (!bases.contains(base) && bases.size() < MAX_SERVERS) {
+				bases.add(base);
+			}
+		}
+		return bases;
 	}
 
 	static void prefetchNow(String base, State state) throws IOException {
@@ -127,12 +218,14 @@ public final class ServerPack {
 		}
 		JsonObject json = GSON.fromJson(body, JsonObject.class);
 		String sha1 = normalize(json.has("sha1") ? json.get("sha1").getAsString() : null);
-		String id = json.has("id") ? json.get("id").getAsString() : state.id();
+		Known known = state.known().get(base);
+		String id = json.has("id") ? json.get("id").getAsString() : known != null ? known.id() : null;
 		if (sha1 == null) {
 			return;
 		}
-		writeState(new State(base, id, sha1));
+		update(s -> s.with(base, id, sha1, false));
 		if (find(sha1, id) != null) {
+			offerFresh(base, sha1);
 			return;
 		}
 		Files.createDirectories(dir());
@@ -161,9 +254,46 @@ public final class ServerPack {
 			}
 			Files.move(tmp, file(sha1), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
 			MinehouseMenu.LOG.info("MineHouse server pack {} downloaded ahead of joining", sha1);
+			offerFresh(base, sha1);
 		} finally {
 			Files.deleteIfExists(tmp);
 		}
+	}
+
+	/** A prefetched pack is on disk: if it is the current server's and not active, apply it. */
+	private static void offerFresh(String base, String sha1) {
+		State state = readState();
+		if (base.equals(state.base()) && sha1.equals(state.sha1()) && !sha1.equals(activeSha1)) {
+			pendingApply = true;
+		}
+	}
+
+	/**
+	 * Client tick: the current server's newest pack arrived after the game loaded with an older
+	 * one (or with none). While the player is still on the title or server list screen, swap it in
+	 * with one resource reload now, so joining needs no download and no reload.
+	 */
+	static void applyInMenu(Minecraft minecraft) {
+		if (!pendingApply || !initialized || System.getProperty("minehouse.selftest") != null) {
+			return;
+		}
+		Screen screen = minecraft.gui.screen();
+		if (minecraft.level != null || minecraft.gui.overlay() != null
+			|| !(screen instanceof TitleScreen || screen instanceof JoinMultiplayerScreen)) {
+			return;
+		}
+		pendingApply = false;
+		State state = readState();
+		if (state.sha1() == null || state.sha1().equals(activeSha1)) {
+			return;
+		}
+		Path file = find(state.sha1(), state.id());
+		if (file == null) {
+			return;
+		}
+		activate(file, state.sha1());
+		MinehouseMenu.LOG.info("MineHouse server pack {} applied in the menu, before joining", state.sha1());
+		minecraft.reloadResourcePacks();
 	}
 
 	private static HttpURLConnection open(String url, int connectTimeoutMs, int readTimeoutMs) throws IOException {
@@ -289,7 +419,7 @@ public final class ServerPack {
 		if (sha1.equals(activeSha1) && active != null && Files.isRegularFile(active)) {
 			// Same pack as the one loaded since game start: nothing to download or reload.
 			if (base != null) {
-				writeState(new State(base, id.toString(), sha1));
+				update(s -> s.with(base, id.toString(), sha1, true));
 			}
 			reply(connection, id, ServerboundResourcePackPacket.Action.ACCEPTED);
 			reply(connection, id, ServerboundResourcePackPacket.Action.DOWNLOADED);
@@ -301,7 +431,7 @@ public final class ServerPack {
 			// Some other server's pack: vanilla, on top of ours.
 			return false;
 		}
-		writeState(new State(base, id.toString(), sha1));
+		update(s -> s.with(base, id.toString(), sha1, true));
 		Path file = find(sha1, id.toString());
 		if (file == null) {
 			// New pack we don't have: vanilla downloads it (with its toast) into downloads/, our old
@@ -413,15 +543,16 @@ public final class ServerPack {
 		}
 	}
 
-	/** Keeps the active pack and the newest known one, removes older copies. */
+	/** Keeps the active pack and the newest one of every known server, removes older copies. */
 	private static void prune() {
 		if (!Files.isDirectory(dir())) {
 			return;
 		}
-		State state = readState();
+		Set<Path> keep = new java.util.HashSet<>();
+		readState().known().values().forEach(k -> keep.add(file(k.sha1())));
 		try (Stream<Path> files = Files.list(dir())) {
 			files.filter(ServerPack::isPackFile)
-				.filter(p -> !p.equals(active) && (state.sha1() == null || !p.equals(file(state.sha1()))))
+				.filter(p -> !p.equals(active) && !keep.contains(p))
 				.forEach(p -> {
 					try {
 						Files.deleteIfExists(p);
@@ -473,10 +604,15 @@ public final class ServerPack {
 				return State.EMPTY;
 			}
 			State state = GSON.fromJson(Files.readString(path), State.class);
-			return state == null ? State.EMPTY : new State(state.base(), state.id(), normalize(state.sha1()));
+			return state == null ? State.EMPTY : new State(state.base(), state.id(), normalize(state.sha1()), state.servers());
 		} catch (Exception e) {
 			return State.EMPTY;
 		}
+	}
+
+	/** Read-modify-write of the state; the prefetch thread and the render thread both write it. */
+	static synchronized void update(UnaryOperator<State> change) {
+		writeState(change.apply(readState()));
 	}
 
 	static synchronized void writeState(State state) {
@@ -498,6 +634,11 @@ public final class ServerPack {
 		activeSha1 = null;
 		initialized = false;
 		prefetch = null;
+		pendingApply = false;
+	}
+
+	static boolean pendingApply() {
+		return pendingApply;
 	}
 
 	static @Nullable String activeSha1() {
