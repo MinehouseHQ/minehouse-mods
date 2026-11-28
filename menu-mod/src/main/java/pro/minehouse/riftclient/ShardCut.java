@@ -387,10 +387,12 @@ final class ShardCut {
 				quad(p, vc, u, v, q, RIM);
 			}
 			// Cracks: from the centre to every third corner, thin and pale.
+			// A layer nearer than the rim, so where they cross they do not fight.
+			float t3 = (e0[s] - 0.008f) / e0[s];
 			for (int k = 1; k < k0; k += 3) {
 				float[] q = strip(c[k0 * 3], c[k0 * 3 + 1], c[k0 * 3 + 2], c[k * 3], c[k * 3 + 1], c[k * 3 + 2], w * 0.45f, mx[s], my[s], mz[s]);
 				for (int i = 0; i < 12; i++) {
-					q[i] *= t2;
+					q[i] *= t3;
 				}
 				quad(p, vc, u, v, q, 0x99F1E4FF);
 			}
@@ -458,9 +460,9 @@ final class ShardCut {
 		for (int i = 0; i < segs; i++) {
 			double a0 = i * Math.PI * 2 / segs, a1 = (i + 1) * Math.PI * 2 / segs;
 			float c0 = (float) Math.cos(a0), s0 = (float) Math.sin(a0), c1 = (float) Math.cos(a1), s1 = (float) Math.sin(a1);
-			// Two rings: a hot white core, then violet fading out.
-			ring(p, vc, u, v, ox, oy, oz, rx, rz, ux, uy, uz, c0, s0, c1, s1, 0, size * 0.35f, 0xF0FFFFFF, 0xC0E9D4FF);
-			ring(p, vc, u, v, ox, oy, oz, rx, rz, ux, uy, uz, c0, s0, c1, s1, size * 0.35f, size, 0xC0E9D4FF, 0x00A25CFF);
+			// Two rings: a hot white core, then violet fading out. Each on its own layer, nearest last.
+			ring(p, vc, u, v, ox, oy, oz, rx, rz, ux, uy, uz, c0, s0, c1, s1, size * 0.35f, size, 0xC0E9D4FF, 0x00A25CFF, layer(23));
+			ring(p, vc, u, v, ox, oy, oz, rx, rz, ux, uy, uz, c0, s0, c1, s1, 0, size * 0.35f, 0xF0FFFFFF, 0xC0E9D4FF, layer(24));
 		}
 		// Rays, turning slowly.
 		java.util.Random r = new java.util.Random(11);
@@ -476,6 +478,10 @@ final class ShardCut {
 					ox + rx * dx * len + ux * dy * len, oy + uy * dy * len, oz + rz * dx * len + uz * dy * len,
 					ox - rx * px * w - ux * py * w, oy - uy * py * w, oz - rz * px * w - uz * py * w };
 			int[] col = { 0xD0F0DCFF, 0x00A25CFF, 0x00A25CFF, 0xD0F0DCFF };
+			float lk = layer(i);
+			for (int k = 0; k < 12; k++) {
+				q[k] *= lk;
+			}
 			for (int k = 0; k < 4; k++) {
 				vertex(p, vc, q[k * 3], q[k * 3 + 1], q[k * 3 + 2], u, v, col[k], FULL);
 			}
@@ -485,8 +491,22 @@ final class ShardCut {
 		}
 	}
 
+	/**
+	 * The flash is many flat pieces in one plane facing the eye; drawn all at the same depth they
+	 * fight over who is in front (z-fighting in the middle, Timur 28.11). So each ray and ring gets
+	 * its own layer a little nearer the eye: scaled towards the eye, it covers the same pixels.
+	 */
+	private static float layer(int i) {
+		return 1 - 0.0015f * (i + 1);
+	}
+
 	private static void ring(PoseStack.Pose p, VertexConsumer vc, float u, float v, float ox, float oy, float oz, float rx, float rz, float ux,
-			float uy, float uz, float c0, float s0, float c1, float s1, float in, float out, int inner, int outer) {
+			float uy, float uz, float c0, float s0, float c1, float s1, float in, float out, int inner, int outer, float lk) {
+		ox *= lk;
+		oy *= lk;
+		oz *= lk;
+		in *= lk;
+		out *= lk;
 		float[][] pts = {
 				{ ox + (rx * c0 + 0) * in + ux * s0 * in, oy + uy * s0 * in, oz + rz * c0 * in + uz * s0 * in },
 				{ ox + rx * c0 * out + ux * s0 * out, oy + uy * s0 * out, oz + rz * c0 * out + uz * s0 * out },

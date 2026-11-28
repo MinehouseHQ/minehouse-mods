@@ -129,6 +129,38 @@ public final class PortalWindows {
 
 	// ------------------------------------------------------------------ packets
 
+	/** A show's rift (Events "do": "rift"), on the server's word: as it is, since when, and when last heard of. */
+	private static final class ShowRift {
+		ShowRiftPayload last;
+		long born;
+		long heard;
+		List<Shards.Shard> shards;
+	}
+
+	/** By the first id of its displays. */
+	private static final Map<Integer, ShowRift> SHOW_RIFTS = new HashMap<>();
+	private static final long SHOW_RIFT_SILENCE = 1_500_000_000L;
+
+	static void receive(ShowRiftPayload payload) {
+		if (payload.hide().length == 0) {
+			return;
+		}
+		int key = payload.hide()[0];
+		if (payload.open() <= 0) {
+			SHOW_RIFTS.remove(key);
+			return;
+		}
+		long now = System.nanoTime();
+		ShowRift r = SHOW_RIFTS.computeIfAbsent(key, k -> {
+			ShowRift n = new ShowRift();
+			n.born = now;
+			n.shards = Shards.generate(k * 7919L + 23);
+			return n;
+		});
+		r.last = payload;
+		r.heard = now;
+	}
+
 	static void receive(WindowPayloads.View view) {
 		try {
 			Window w = build(view);
@@ -164,6 +196,7 @@ public final class PortalWindows {
 	static void clear() {
 		WINDOWS.clear();
 		VOID_BORN.clear();
+		SHOW_RIFTS.clear();
 		HIDDEN.clear();
 		arrived = null;
 	}
@@ -438,6 +471,7 @@ public final class PortalWindows {
 					(p, vc) -> cut.sheen(p, vc, u, v));
 		}
 		voidRifts(ctx, mc, cam, pose, u, v, time, now);
+		showRifts(ctx, cam, pose, u, v, time, now);
 	}
 
 	/** About the tear's size in that picture (6.4 blocks, the tear some 44 px of 64). */
@@ -487,6 +521,38 @@ public final class PortalWindows {
 		}
 		VOID_BORN.keySet().retainAll(seen);
 		VOID_SHARDS.keySet().retainAll(seen);
+	}
+
+	/**
+	 * A show's rift (Events "do": "rift", and the End mod's window blocks a show puts up, as in the
+	 * End rifts trailer): broken violet glass round its
+	 * middle with the deep inside, as big as most of the crack; the crack's displays are hidden.
+	 */
+	private static void showRifts(LevelRenderContext ctx, Vec3 cam, PoseStack pose, float u, float v, float time, long now) {
+		Minecraft mc = Minecraft.getInstance();
+		// Gone when the server stops telling, or when its picture (the first display) is gone.
+		SHOW_RIFTS.values().removeIf(r -> now - r.heard > SHOW_RIFT_SILENCE || mc.level == null || mc.level.getEntity(r.last.hide()[0]) == null);
+		if (SHOW_RIFTS.isEmpty() || !drawsRiftPictures()) {
+			return;
+		}
+		for (ShowRift r : SHOW_RIFTS.values()) {
+			ShowRiftPayload p = r.last;
+			float radius = (float) (p.radius() * p.open());
+			if (radius < 0.05f) {
+				continue;
+			}
+			for (int id : p.hide()) {
+				HIDDEN.add(id);
+			}
+			ShardCut cut = new ShardCut(r.shards, (float) (p.x() - cam.x), (float) (p.y() - cam.y), (float) (p.z() - cam.z), radius,
+					(now - r.born) / 1e9f / Shards.OPEN_SECONDS, time, false);
+			ctx.submitNodeCollector().submitCustomGeometry(pose, RenderTypes.entitySolid(TextureAtlas.LOCATION_BLOCKS), (pp, vc) -> {
+				cut.back(pp, vc, u, v, DEEP, true);
+				cut.edges(pp, vc, u, v);
+			});
+			ctx.submitNodeCollector().submitCustomGeometry(pose, RenderTypes.entityTranslucentCull(TextureAtlas.LOCATION_BLOCKS),
+					(pp, vc) -> cut.sheen(pp, vc, u, v));
+		}
 	}
 
 	private static void drawPlain(PoseStack.Pose p, VertexConsumer vc, List<Quad> quads, float ox, float oy, float oz) {

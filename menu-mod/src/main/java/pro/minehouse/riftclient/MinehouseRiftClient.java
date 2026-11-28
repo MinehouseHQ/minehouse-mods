@@ -45,6 +45,9 @@ public final class MinehouseRiftClient implements ClientModInitializer {
 		PayloadTypeRegistry.clientboundPlay().register(HolePayload.TYPE, HolePayload.CODEC);
 		ClientPlayNetworking.registerGlobalReceiver(HolePayload.TYPE, (payload, context) -> BlackHoleBlocks.receive(payload));
 		ClientTickEvents.END_CLIENT_TICK.register(BlackHoleBlocks::tick);
+		// A show's rift (Events 0.22.0+) as broken violet glass, like every rift.
+		PayloadTypeRegistry.clientboundPlay().register(ShowRiftPayload.TYPE, ShowRiftPayload.CODEC);
+		ClientPlayNetworking.registerGlobalReceiver(ShowRiftPayload.TYPE, (payload, context) -> PortalWindows.receive(payload));
 		// The see-through rift window (End 0.33.1+): the room behind it, drawn in its oval.
 		PayloadTypeRegistry.clientboundPlay().register(WindowPayloads.View.TYPE, WindowPayloads.View.CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(WindowPayloads.Scale.TYPE, WindowPayloads.Scale.CODEC);
