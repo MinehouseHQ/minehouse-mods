@@ -16,6 +16,10 @@ public final class UiTree {
 	public static final int LINE = 10;
 	public static final int BUTTON_H = 18;
 	public static final int INPUT_W = 100;
+	/** Checkbox square; a switch's track (node "check"). */
+	public static final int BOX = 10;
+	public static final int SWITCH_W = 22;
+	public static final int SWITCH_H = 12;
 	public static final int TABS_H = 22;
 	public static final int TAB_ICON_W = 18;
 	public static final int COIN = 8;
@@ -107,7 +111,7 @@ public final class UiTree {
 		/** Takes the width of its column (else its own width). */
 		boolean fills() {
 			return switch (type) {
-				case "col", "card", "row", "tabs", "divider", "text", "model", "explainer", "input", "slider" -> true;
+				case "col", "card", "row", "tabs", "divider", "text", "model", "explainer", "input", "slider", "check" -> true;
 				default -> false;
 			};
 		}
@@ -138,6 +142,7 @@ public final class UiTree {
 			case "swatch" -> 12;
 			case "model" -> 32;
 			case "input", "slider" -> INPUT_W;
+			case "check" -> measure.width(n.str("text", ""), false) + ("switch".equals(n.str("style")) ? SWITCH_W + 8 : BOX + 5);
 			case "image", "space", "divider", "tabs", "explainer" -> 0;
 			case "grid" -> gridWidth(n);
 			case "row" -> {
@@ -189,6 +194,7 @@ public final class UiTree {
 			}
 			case "button" -> n.str("style", "primary").equals("link") ? LINE + 2 : BUTTON_H;
 			case "slider" -> BUTTON_H;
+			case "check" -> "switch".equals(n.str("style")) ? SWITCH_H : BOX + 2;
 			case "input" -> n.num("rows", 1) > 1 ? Math.min(20, n.num("rows", 1)) * LINE + 7 : BUTTON_H;
 			case "item" -> 16;
 			case "swatch" -> 12;

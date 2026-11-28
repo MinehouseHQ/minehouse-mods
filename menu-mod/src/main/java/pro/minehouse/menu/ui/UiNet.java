@@ -87,6 +87,17 @@ public final class UiNet {
 		}
 	}
 
+	/** Registered only to tell the server this client draws checkboxes and switches (node "check", client 1.52.0+). */
+	public record CheckFeature() implements CustomPacketPayload {
+		static final Type<CheckFeature> TYPE = new Type<>(Identifier.fromNamespaceAndPath(NS, "check"));
+		static final StreamCodec<FriendlyByteBuf, CheckFeature> CODEC = StreamCodec.unit(new CheckFeature());
+
+		@Override
+		public Type<CheckFeature> type() {
+			return TYPE;
+		}
+	}
+
 	private UiNet() {
 	}
 
@@ -102,6 +113,9 @@ public final class UiNet {
 		});
 		PayloadTypeRegistry.clientboundPlay().register(InputFeature.TYPE, InputFeature.CODEC);
 		ClientPlayNetworking.registerGlobalReceiver(InputFeature.TYPE, (payload, context) -> {
+		});
+		PayloadTypeRegistry.clientboundPlay().register(CheckFeature.TYPE, CheckFeature.CODEC);
+		ClientPlayNetworking.registerGlobalReceiver(CheckFeature.TYPE, (payload, context) -> {
 		});
 		net.fabricmc.fabric.api.client.rendering.v1.PictureInPictureRendererRegistry.register(context -> new pro.minehouse.menu.explainer.ExplainerRenderer());
 		ClientPlayNetworking.registerGlobalReceiver(WindowPayload.TYPE, (payload, context) -> receive(context.client(), payload.json()));

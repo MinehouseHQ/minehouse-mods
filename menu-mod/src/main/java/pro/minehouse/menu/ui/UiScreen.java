@@ -80,6 +80,8 @@ public final class UiScreen extends Screen implements Fitting {
 	private final Map<String, UiField> fields = new HashMap<>();
 	/** Sliders by node id, kept the same way. */
 	private final Map<String, UiSlider> sliders = new HashMap<>();
+	/** Checkboxes and switches by node id, kept the same way. */
+	private final Map<String, UiCheck> checks = new HashMap<>();
 	/** The slider being dragged (its node id), or null. */
 	private String sliding;
 	/** The field that takes the keyboard (its node id), or null. */
@@ -120,6 +122,11 @@ public final class UiScreen extends Screen implements Fitting {
 	String fieldText(String field) {
 		UiField f = fields.get(field);
 		return f == null ? null : f.text;
+	}
+
+	String checkText(String check) {
+		UiCheck c = checks.get(check);
+		return c == null ? null : c.text();
 	}
 
 	String sliderText(String slider) {
@@ -179,7 +186,14 @@ public final class UiScreen extends Screen implements Fitting {
 	private void readFields() {
 		Map<String, UiField> seen = new HashMap<>();
 		Map<String, UiSlider> seenSliders = new HashMap<>();
-		for (Panel p : panels) collectFields(p.node(), seen, seenSliders);
+		Map<String, UiCheck> seenChecks = new HashMap<>();
+		for (Panel p : panels) collectFields(p.node(), seen, seenSliders, seenChecks);
+		checks.keySet().retainAll(seenChecks.keySet());
+		for (Map.Entry<String, UiCheck> e : seenChecks.entrySet()) {
+			UiCheck was = checks.get(e.getKey());
+			// What the player set stays until the server says something else.
+			if (was == null || was.server != e.getValue().server) checks.put(e.getKey(), e.getValue());
+		}
 		sliders.keySet().retainAll(seenSliders.keySet());
 		for (Map.Entry<String, UiSlider> e : seenSliders.entrySet()) {
 			UiSlider now = e.getValue();
@@ -207,14 +221,17 @@ public final class UiScreen extends Screen implements Fitting {
 		firstRead = false;
 	}
 
-	private static void collectFields(Node n, Map<String, UiField> out, Map<String, UiSlider> outSliders) {
+	private static void collectFields(Node n, Map<String, UiField> out, Map<String, UiSlider> outSliders, Map<String, UiCheck> outChecks) {
+		if (n.type.equals("check") && n.id != null) {
+			outChecks.put(n.id, new UiCheck(n.flag("value")));
+		}
 		if (n.type.equals("input") && n.id != null) {
 			out.put(n.id, new UiField(n.str("value", ""), n.num("max", 32), "digits".equals(n.str("chars")), n.num("rows", 1) > 1));
 		}
 		if (n.type.equals("slider") && n.id != null) {
 			outSliders.put(n.id, new UiSlider(dbl(n, "min", 0), dbl(n, "max", 1), dbl(n, "step", 0), dbl(n, "value", dbl(n, "min", 0))));
 		}
-		for (Node c : n.children) collectFields(c, out, outSliders);
+		for (Node c : n.children) collectFields(c, out, outSliders, outChecks);
 	}
 
 	private static double dbl(Node n, String key, double fallback) {
@@ -526,6 +543,7 @@ public final class UiScreen extends Screen implements Fitting {
 			case "button" -> button(g, n, hover);
 			case "input" -> input(g, n, hover);
 			case "slider" -> slider(g, n, hover);
+			case "check" -> check(g, n, hover);
 			case "tabs" -> {
 				tabs(g, n, mx, my);
 				return; // the tabs draw their icons themselves
@@ -720,6 +738,63 @@ public final class UiScreen extends Screen implements Fitting {
 		g.text(font, c, n.x + (n.w - font.width(c)) / 2, n.y + (n.h - 8) / 2, on ? Theme.FG : Theme.DISABLED, true);
 	}
 
+	/** A checkbox (square, tick, text after) or a switch (text, then the iPhone-like switch at the right edge). */
+	private void check(GuiGraphicsExtractor g, Node n, boolean hover) {
+		UiCheck c = n.id == null ? null : checks.get(n.id);
+		boolean on = c != null && !n.flag("disabled");
+		float pos = c == null ? (n.flag("value") ? 1 : 0) : c.position(System.currentTimeMillis());
+		int textColor = on ? Theme.FG : Theme.DISABLED;
+		if ("switch".equals(n.str("style"))) {
+			int tw = UiTree.SWITCH_W;
+			int th = UiTree.SWITCH_H;
+			int sx = n.x + n.w - tw;
+			int sy = n.y + (n.h - th) / 2;
+			int off = on ? (hover ? 0xFF52525B : 0xFF3F3F46) : 0xFF27272A;
+			int lit = on ? 0xFF30D158 : 0xFF1F5E33;
+			pill(g, sx, sy, tw, th, lerpColor(off, lit, pos));
+			int k = th - 2;
+			int kx = sx + 1 + Math.round((tw - 2 - k) * pos);
+			pill(g, kx, sy + 1, k, k, on ? 0xFFFAFAFA : 0xFFA1A1AA);
+			Component text = Component.literal(font.plainSubstrByWidth(n.str("text", ""), Math.max(0, n.w - tw - 8)));
+			g.text(font, text, n.x, n.y + (n.h - 8) / 2, textColor, false);
+			return;
+		}
+		int b = UiTree.BOX;
+		int bx = n.x;
+		int by = n.y + (n.h - b) / 2;
+		int border = !on ? Theme.BORDER : pos > 0.5f ? Theme.ACCENT : hover ? Theme.FAINT : 0xFF3F3F46;
+		card(g, bx, by, bx + b, by + b, lerpColor(Theme.MUTED_BG, on ? Theme.ACCENT : Theme.DISABLED, pos), border);
+		if (pos > 0.05f) tick(g, bx, by, ((int) (pos * 255) << 24) | (on ? 0x18181B : 0x27272A));
+		Component text = Component.literal(font.plainSubstrByWidth(n.str("text", ""), Math.max(0, n.w - b - 5)));
+		g.text(font, text, bx + b + 5, n.y + (n.h - 8) / 2, textColor, false);
+	}
+
+	/** The tick in a 10x10 checkbox, 2 px thick. */
+	private static void tick(GuiGraphicsExtractor g, int x, int y, int color) {
+		int[][] px = {{2, 4}, {3, 5}, {4, 6}, {5, 5}, {6, 4}, {7, 3}, {8, 2}};
+		for (int[] p : px) g.fill(x + p[0], y + p[1], x + p[0] + 1, y + p[1] + 2, color);
+	}
+
+	/** A rounded bar with round ends (a circle when w == h), drawn row by row. */
+	private static void pill(GuiGraphicsExtractor g, int x, int y, int w, int h, int color) {
+		float r = h / 2f;
+		for (int i = 0; i < h; i++) {
+			float dy = i + 0.5f - r;
+			int inset = Math.round(r - (float) Math.sqrt(Math.max(0, r * r - dy * dy)));
+			if (w - inset * 2 > 0) g.fill(x + inset, y + i, x + w - inset, y + i + 1, color);
+		}
+	}
+
+	private static int lerpColor(int a, int b, float t) {
+		int out = 0;
+		for (int shift = 0; shift <= 24; shift += 8) {
+			int ca = (a >>> shift) & 0xFF;
+			int cb = (b >>> shift) & 0xFF;
+			out |= (Math.round(ca + (cb - ca) * t) & 0xFF) << shift;
+		}
+		return out;
+	}
+
 	/** The slider's node in the current layout, by id. */
 	private Node sliderNode(String id) {
 		for (Panel p : panels) {
@@ -736,6 +811,28 @@ public final class UiScreen extends Screen implements Fitting {
 			if (f != null) return f;
 		}
 		return null;
+	}
+
+	/** Flips a checkbox or switch and sends its "change" (with the new state). */
+	void flip(Node n) {
+		UiCheck c = checks.get(n.id);
+		if (c == null) return;
+		c.flip(System.currentTimeMillis());
+		minecraft.getSoundManager().play(net.minecraft.client.resources.sounds.SimpleSoundInstance.forUI(
+				net.minecraft.sounds.SoundEvents.UI_BUTTON_CLICK.value(), c.value ? 1.4F : 1.1F, 0.25F));
+		JsonObject change = n.obj("change");
+		if (change != null) send(change);
+	}
+
+	/** Self-test: flips the checkbox or switch {@code id} as a click would. */
+	void flip(String id) {
+		for (Panel p : panels) {
+			Node n = byType(p.node(), "check", id);
+			if (n != null) {
+				flip(n);
+				return;
+			}
+		}
 	}
 
 	private void slideTo(Node n, double mx) {
@@ -1256,10 +1353,11 @@ public final class UiScreen extends Screen implements Fitting {
 		msg.addProperty("window", id);
 		msg.addProperty("rev", rev);
 		msg.add("click", click);
-		if (!fields.isEmpty() || !sliders.isEmpty()) {
+		if (!fields.isEmpty() || !sliders.isEmpty() || !checks.isEmpty()) {
 			JsonObject inputs = new JsonObject();
 			fields.forEach((k, f) -> inputs.addProperty(k, f.text));
 			sliders.forEach((k, sl) -> inputs.addProperty(k, sl.text()));
+			checks.forEach((k, c) -> inputs.addProperty(k, c.text()));
 			msg.add("inputs", inputs);
 		}
 		UiNet.send(msg);
@@ -1317,6 +1415,11 @@ public final class UiScreen extends Screen implements Fitting {
 		if (slider != null) {
 			sliding = slider.id;
 			slideTo(slider, mx);
+			return true;
+		}
+		Node check = find(mx, my, n -> n.type.equals("check") && n.id != null && checks.containsKey(n.id) && !n.flag("disabled"));
+		if (check != null) {
+			flip(check);
 			return true;
 		}
 		Node hit = find(mx, my, n -> n.click() != null || n.dbl() != null);

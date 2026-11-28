@@ -13,7 +13,7 @@ import pro.minehouse.menu.MinehouseMenu;
  * CI check (xvfb-run ./gradlew runSelftestClient -Pselftest=ui): feeds the client a made-up server
  * window (selftest/ui-window.json, the wardrobe's layout with vanilla models), screenshots it, sends
  * an update and a close, then the server and player menus (selftest/ui-menu.json, ui-player.json,
- * screenshots ui-menu.png, ui-player.png), a text field and a slider (ui-input.png), the player wheel (ui-wheel.png), and prints MINEHOUSE_UI_OK if the windows held together.
+ * screenshots ui-menu.png, ui-player.png), a text field, a slider, checkboxes and switches (ui-input.png), the player wheel (ui-wheel.png), and prints MINEHOUSE_UI_OK if the windows held together.
  */
 final class UiSelfTest {
 	private static int ticks;
@@ -66,6 +66,12 @@ final class UiSelfTest {
 						s.charTyped(new net.minecraft.client.input.CharacterEvent('x'));
 						check("125".equals(s.fieldText("amount")), "typing goes into the focused field, digits only");
 						check("1".equals(s.sliderText("scale")), "the slider stands where the server put it");
+						// Checkboxes and switches (client 1.52.0): a click flips them, the state goes with clicks.
+						s.flip("pvp");
+						s.flip("sounds");
+						check("true".equals(s.checkText("pvp")), "a click ticks the checkbox");
+						check("false".equals(s.checkText("sounds")), "a click turns the switch off");
+						check("true".equals(s.checkText("notify")), "the switch stands where the server put it");
 					} else {
 						check(false, "the window with a field opens");
 					}

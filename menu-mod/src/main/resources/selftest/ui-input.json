@@ -6,6 +6,11 @@
    {"t":"button","text":"Задать","style":"primary","click":{"a":"set"}}]},
   {"t":"input","id":"name","value":"","placeholder":"Имя этапа"},
   {"t":"input","id":"post","rows":3,"max":1000,"value":"Длинный пост в несколько строк: слова переносятся сами, а Enter начинает новую строку.\nВторая строка.","placeholder":"Текст поста"},
-  {"t":"slider","id":"scale","min":0.5,"max":2,"step":0.1,"value":1,"label":"Множитель","unit":" ×","change":{"a":"scale"}}
+  {"t":"slider","id":"scale","min":0.5,"max":2,"step":0.1,"value":1,"label":"Множитель","unit":" ×","change":{"a":"scale"}},
+  {"t":"divider"},
+  {"t":"check","id":"pvp","text":"Разрешить PvP на участке","value":false},
+  {"t":"check","id":"mobs","text":"Мобы не спавнятся","value":true,"disabled":true},
+  {"t":"check","id":"notify","text":"Уведомления о входе друзей","value":true,"style":"switch"},
+  {"t":"check","id":"sounds","text":"Звуки разломов","value":true,"style":"switch"}
  ]}}],
  "hints":[["Enter","задать"],["Esc","закрыть"]]}
